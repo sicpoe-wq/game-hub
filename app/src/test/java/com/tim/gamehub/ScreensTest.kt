@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.tim.gamehub.games.wordsearch.WordSearchGame
+import com.tim.gamehub.games.watersort.WaterSortGame
 import org.junit.Rule
 import org.junit.Test
 class ScreensTest {
@@ -15,4 +16,6 @@ class ScreensTest {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { c() } } }
     @Test fun hub() = shot { HubScreen {} }
     @Test fun wordsearch() = shot { WordSearchGame {} }
+    @Test fun watersort_level1() = shot { WaterSortGame({}, startLevel = 1) }
+    @Test fun watersort_level30() = shot { WaterSortGame({}, startLevel = 30) }
 }
