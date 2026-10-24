@@ -3,7 +3,9 @@ package com.tim.gamehub.games.wordsearch
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -35,13 +38,14 @@ class BestTimes(ctx: Context) {
 }
 
 @Composable
-fun WordSearchGame(onExit: () -> Unit) {
+fun WordSearchGame(onExit: () -> Unit, onPuzzle: (Puzzle) -> Unit = {}) {
     val ctx = LocalContext.current
     val best = remember { BestTimes(ctx) }
     var diff by remember { mutableStateOf(Difficulty.EASY) }
     var theme by remember { mutableStateOf(THEMES.keys.random()) }
     var seed by remember { mutableIntStateOf(0) }
     val puzzle = remember(diff, theme, seed) { Generator.generate(theme, diff) }
+    SideEffect { onPuzzle(puzzle) }
     val found = remember(puzzle) { mutableStateListOf<Placed>() }
     var seconds by remember(puzzle) { mutableLongStateOf(0L) }
     var newBest by remember(puzzle) { mutableStateOf(false) }
@@ -66,7 +70,7 @@ fun WordSearchGame(onExit: () -> Unit) {
         Text("Theme: $theme   •   Best: ${best.get(diff)?.let(::fmt) ?: "—"}", color = Color.Gray, fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Box {
-            Grid(puzzle, found) { if (it !in found && !won) found += it }
+            Grid(puzzle, found) { if (it !in found && found.size < puzzle.words.size) found += it }
             if (won) Column(
                 Modifier.matchParentSize().background(Color.White.copy(alpha = 0.93f), RoundedCornerShape(16.dp)),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
@@ -83,7 +87,7 @@ fun WordSearchGame(onExit: () -> Unit) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text("Words (${found.size}/${puzzle.words.size})", fontWeight = FontWeight.SemiBold)
+        Text("Words (${found.size}/${puzzle.words.size})", fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("ws_count"))
         @OptIn(ExperimentalLayoutApi::class)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             puzzle.words.forEachIndexed { i, w ->
@@ -103,24 +107,25 @@ private fun Grid(p: Puzzle, found: List<Placed>, onFound: (Placed) -> Unit) {
     val tm = rememberTextMeasurer()
     var start by remember(p) { mutableStateOf<Cell?>(null) }
     var end by remember(p) { mutableStateOf<Cell?>(null) }
-    var cellPx by remember { mutableFloatStateOf(1f) }
-    fun cellAt(o: Offset) = Cell((o.y / cellPx).toInt().coerceIn(0, n - 1), (o.x / cellPx).toInt().coerceIn(0, n - 1))
+    val currentOnFound by rememberUpdatedState(onFound)
     Canvas(
-        Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(16.dp))
+        Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White, RoundedCornerShape(16.dp)).testTag("ws_grid")
             .pointerInput(p) {
-                detectDragGestures(
-                    onDragStart = { start = cellAt(it); end = start },
-                    onDrag = { ch, _ -> end = cellAt(ch.position) },
-                    onDragEnd = {
-                        val s = start; val e = end
-                        if (s != null && e != null) Generator.line(s, e)?.let { Generator.match(it, p.words) }?.let(onFound)
-                        start = null; end = null
-                    },
-                    onDragCancel = { start = null; end = null })
+                // cell size from the input area's own size (not from the last draw pass)
+                fun cellAt(o: Offset): Cell { val cp = size.width.toFloat() / n; return Cell((o.y / cp).toInt().coerceIn(0, n - 1), (o.x / cp).toInt().coerceIn(0, n - 1)) }
+                // Selection starts at the finger-down cell (not where touch slop is crossed),
+                // so fast swipes don't start one cell late.
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    start = cellAt(down.position); end = start
+                    val ok = drag(down.id) { ch -> end = cellAt(ch.position); ch.consume() }
+                    val s = start; val e = end
+                    if (ok && s != null && e != null) Generator.line(s, e)?.let { Generator.match(it, p.words) }?.let { currentOnFound(it) }
+                    start = null; end = null
+                }
             }
     ) {
-        cellPx = size.width / n
-        val cs = cellPx
+        val cs = size.width / n
         fun center(c: Cell) = Offset(c.c * cs + cs / 2, c.r * cs + cs / 2)
         found.forEachIndexed { i, w ->
             drawLine(HIGHLIGHTS[i % HIGHLIGHTS.size], center(w.cells.first()), center(w.cells.last()), cs * 0.8f, StrokeCap.Round)
