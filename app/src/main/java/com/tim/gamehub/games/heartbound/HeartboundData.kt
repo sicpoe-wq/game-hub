@@ -6,6 +6,7 @@ enum class HeroClass(val title: String, val atkGrowth: Int, val defGrowth: Int) 
     ROGUE("Rogue", 2, 1),
     RANGER("Ranger", 2, 1),
     CLERIC("Cleric", 1, 2),
+    WARDEN("Warden", 2, 2),
 }
 
 enum class AffTier(val label: String, val min: Int, val hearts: Int) {
@@ -102,6 +103,13 @@ object Heartbound {
             love = setOf("herbs"), like = setOf("seeds", "hymn"), dislike = setOf("lockpicks"),
             baseAtk = 5, baseDef = 7, startLevel = 2, startAff = 10, startRecruited = true, accent = 0xFF2F6F6A,
         ),
+        HeroDef(
+            "nim", "Nim Hale", HeroClass.WARDEN, "Keeper of the Hidden Key",
+            "Wary, dry, and more loyal than she dares admit. She measures a room by its doors, and a person by whether they make her stay anyway.",
+            "Younger sister of Rowan Hale, the last master. She was hidden when the hall's lamps went out and walked under other names until the Covenant visitor withdrew. She has come home to see whether a hall can be a place that does not require anyone to vanish.",
+            love = setOf("lantern"), like = setOf("map", "tea"), dislike = setOf("perfume"),
+            baseAtk = 7, baseDef = 8, startLevel = 2, startAff = 0, accent = 0xFF3D4A5C,
+        ),
     )
     val hero: Map<String, HeroDef> = heroes.associateBy { it.id }
 
@@ -174,17 +182,40 @@ object Heartbound {
             220 to "A proper taproom. Evening talks land a little warmer.",
             350 to "Lanterns, a small stage, and a reputation. Affection comes easier.",
         )),
+        UpgradeDef("forge", "The Forge", "🔥", listOf(
+            160 to "A hearth and an anvil. Enchanting is unlocked, simply.",
+            260 to "A proper smithy. Enchants take more kindly, and cost less.",
+            400 to "A hall other guilds would borrow. Enchants bite deeper.",
+        )),
+        UpgradeDef("library", "The Library", "📚", listOf(
+            150 to "Shelves and a quiet table. The hall thinks a little clearer.",
+            240 to "A catalog, and evening talks that land with more care.",
+            360 to "A collection Lumenreach would envy. Rare work becomes possible.",
+        )),
+        UpgradeDef("garden", "The Garden", "🌱", listOf(
+            130 to "A plot by the wall. Herbs and flowers come in with the morning.",
+            210 to "Beds and a rain barrel. The garden is generous.",
+            330 to "A small orchard of useful things. Ribbons, herbs, and enough to share.",
+        )),
+        UpgradeDef("stables", "The Stables", "🐴", listOf(
+            150 to "Two stalls and an honest roof. Multi-day roads run a day shorter.",
+            240 to "A proper yard. Parties leave fresher and come home sooner.",
+            360 to "Horses the town notices. The road rarely argues.",
+        )),
     )
 
     fun xpToNext(level: Int) = 40 + level * 30
 
     fun tier(aff: Int) = AffTier.entries.last { aff >= it.min }
 
-    fun giftDelta(hero: HeroDef, giftId: String) = when (giftId) {
-        in hero.love -> 12
-        in hero.like -> 7
-        in hero.dislike -> -2
-        else -> 3
+    fun giftDelta(hero: HeroDef, giftId: String): Int {
+        Life.specialDelta(hero, giftId)?.let { return it }
+        return when (giftId) {
+            in hero.love -> 12
+            in hero.like -> 7
+            in hero.dislike -> -2
+            else -> 3
+        }
     }
 
     val synergies = listOf(

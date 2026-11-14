@@ -2,7 +2,13 @@ package com.tim.gamehub.games.heartbound
 
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,7 +62,8 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Title -> onExit()
             HbScreen.Home, HbScreen.Evening -> c.backToTitle()
             HbScreen.Dialogue -> if (c.showingChoices()) { /* wait */ } else c.advance()
-            HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log -> c.closeMenu()
+            HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log, HbScreen.Hall, HbScreen.Town, HbScreen.Craft, HbScreen.Merchant -> c.closeMenu()
+            is HbScreen.DateMap -> c.goHome()
             HbScreen.CompanionPick -> c.goHome()
             HbScreen.Summary -> c.dismissSummary()
             HbScreen.Battle -> { /* stay in the fight; use Retreat */ }
@@ -85,6 +92,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Log -> LogScreen(c)
             HbScreen.CompanionPick -> CompanionPickScreen(c)
             HbScreen.Battle -> BattleScreen(c)
+            HbScreen.Hall -> HallScreen(c)
+            HbScreen.Town -> TownScreen(c)
+            HbScreen.Craft -> CraftScreen(c)
+            HbScreen.Merchant -> MerchantScreen(c)
+            is HbScreen.DateMap -> DateMapScreen(c, s.heroId)
         }
         c.toast?.let { msg ->
             LaunchedEffect(msg) { delay(1800); c.toast = null }
@@ -100,6 +112,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         name == "beach" -> R.drawable.bg_beach
         name == "harvest" -> R.drawable.bg_harvest
         name == "chapel" -> R.drawable.bg_chapel
+        name == "cafe" -> R.drawable.bg_cafe
+        name == "lake" -> R.drawable.bg_lake
+        name == "market" -> R.drawable.bg_market
+        name == "hill" -> R.drawable.bg_hill
+        name == "room" -> R.drawable.bg_room
         name == "tavern" && night -> R.drawable.bg_tavern_night
         name == "town" && night -> R.drawable.bg_town_night
         name == "forest" && night -> R.drawable.bg_forest_night
@@ -144,9 +161,24 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         "b", "look_b" -> R.drawable.look_b
         "c", "look_c" -> R.drawable.look_c
         "d", "look_d" -> R.drawable.look_d
+        "nim" -> R.drawable.portrait_nim
+        "nim_smile" -> R.drawable.portrait_nim_smile
+        "nim_shy" -> R.drawable.portrait_nim_shy
+        "nim_grim" -> R.drawable.portrait_nim_grim
+        "nim_wow" -> R.drawable.portrait_nim_wow
         else -> R.drawable.portrait_kael
     }
-    Image(painterResource(res), Heartbound.hero[id]?.name ?: id, modifier, contentScale = scale)
+    val pulse = rememberInfiniteTransition(label = "breathe")
+    val scaleA = pulse.animateFloat(1f, 1.018f, infiniteRepeatable(tween(3200, easing = LinearEasing), RepeatMode.Reverse), label = "s")
+    val blink = pulse.animateFloat(0f, 1f, infiniteRepeatable(tween(4600, easing = LinearEasing)), label = "b")
+    Box(modifier) {
+        Image(painterResource(res), Heartbound.hero[id]?.name ?: id,
+            Modifier.fillMaxSize().graphicsLayer { scaleX = scaleA.value; scaleY = scaleA.value },
+            contentScale = scale)
+        if (blink.value > 0.97f) {
+            Box(Modifier.align(Alignment.Center).offset(y = (-6).dp).fillMaxWidth(0.45f).height(5.dp).background(Color(0xCC1A1214), RoundedCornerShape(2.dp)))
+        }
+    }
 }
 
 @Composable private fun EnemyArt(art: String, modifier: Modifier = Modifier) {
@@ -238,7 +270,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     Box(Modifier.fillMaxSize().testTag(if (morning) "hb_home" else "hb_evening")) {
         Bg("guild", if (morning) 0.22f else 0.28f, night = !morning)
         Column(Modifier.fillMaxSize()) {
-            TopBar(c, onExit, if (morning) "Day ${st.day}  ·  Morning" else "Day ${st.day}  ·  Evening")
+            TopBar(c, onExit, if (morning) "Day ${st.day}  ·  Morning  ·  ${Life.seasonLabel(st.world.season)}" else "Day ${st.day}  ·  Evening  ·  ${Life.seasonLabel(st.world.season)}")
             val routeName = st.world.route?.let { Heartbound.hero[it]?.name }
             val greet = when {
                 morning && st.world.chapter >= 1 -> "Morning, ${st.player.name}. The hall still stands."
@@ -248,6 +280,10 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             Text(greet, color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_greet"))
             if (routeName != null) Text("Promised to $routeName.", color = Gold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
             if (st.reputation > 0) Text("Reputation  ${st.reputation}.", color = Gold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp).testTag("hb_rep"))
+            Text("${Life.seasonLabel(st.world.season)}, ${Life.weatherLabel(st.world.weather)}.", color = Cream.copy(alpha = 0.85f), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp).testTag("hb_weather"))
+            if (st.decor.isNotEmpty()) {
+                Text(st.decor.mapNotNull { Life.catalog[it]?.icon }.joinToString("  "), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp).testTag("hb_decor"))
+            }
             st.expedition?.let { ex ->
                 val q = Heartbound.quest[ex.questId]
                 val names = ex.party.joinToString { Heartbound.hero[it]?.name?.split(" ")?.first() ?: it }
@@ -280,10 +316,21 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             Spacer(Modifier.weight(1f))
             if (morning) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (Life.merchantVisits(st)) {
+                        Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_merchant_banner")) {
+                            Text("A traveling merchant is in the square.", color = Ink, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            HbButton("See the wagon", { c.openMerchant() }, Modifier.fillMaxWidth(), tag = "hb_btn_merchant")
+                        }
+                    }
                     HbButton("Quest Board", { c.openBoard() }, Modifier.fillMaxWidth(), tag = "hb_btn_board")
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HbButton("Shop", { c.openShop() }, Modifier.weight(1f), Wood, tag = "hb_btn_shop")
                         HbButton("Upgrades", { c.openUpgrades() }, Modifier.weight(1f), Wood, tag = "hb_btn_upgrades")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HbButton("The Hall", { c.openHall() }, Modifier.weight(1f), Wood, tag = "hb_btn_hall")
+                        HbButton("Town", { c.openTown() }, Modifier.weight(1f), Wood, tag = "hb_btn_town")
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Pill("Journal", onClick = { c.openJournal() }, tag = "hb_btn_journal")
@@ -322,7 +369,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                                 Text("Gift", color = Ink, modifier = Modifier.background(Gold, Soft).clickable { c.openGift(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp))
                                 if (h.affection >= Heartbound.DATE_MIN) {
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Date", color = Cream, modifier = Modifier.background(Color(0xFF6B4C8A), Soft).clickable { c.startDate(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp))
+                                    Text("Date", color = Cream, modifier = Modifier.background(Color(0xFF6B4C8A), Soft).clickable { c.openDateMap(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp).testTag("hb_date_${h.id}"))
+                                    if (c.canVisit(h.id)) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Visit", color = Cream, modifier = Modifier.background(Color(0xFF3D4A5C), Soft).clickable { c.startVisit(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp).testTag("hb_visit_${h.id}"))
+                                    }
                                 }
                             }
                         }
@@ -471,7 +522,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             TopBar(c, {}, "Guild Works")
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Heartbound.upgrades.forEach { u ->
-                    val lv = when (u.id) { "rooms" -> st.rooms; "training" -> st.training; else -> st.tavern }
+                    val lv = st.wing(u.id)
                     val maxed = lv >= u.levels.size
                     val cost = u.levels.getOrNull(lv)?.first
                     val effect = if (lv == 0) u.levels.first().second else if (maxed) u.levels.last().second else u.levels[lv].second
@@ -548,7 +599,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
 
 @Composable private fun GiftScreen(c: HeartboundController, id: String) {
     val d = Heartbound.hero.getValue(id)
-    val gifts = Heartbound.gifts.filter { c.state.inv(it.id) > 0 }
+    val gifts = (Heartbound.gifts + Life.rareGifts + Life.craftedGift.values).distinctBy { it.id }.filter { c.state.inv(it.id) > 0 }
     Box(Modifier.fillMaxSize().testTag("hb_gift")) {
         Bg("guild", 0.4f)
         Column {
@@ -1071,3 +1122,172 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         Text("${f.hp}/${f.maxHp}", color = Cream.copy(alpha = 0.85f), fontSize = 10.sp)
     }
 }
+
+
+@Composable private fun HallScreen(c: HeartboundController) {
+    val st = c.state
+    Box(Modifier.fillMaxSize().testTag("hb_hall")) {
+        Bg("guild", 0.4f, night = st.phase == "evening")
+        Column {
+            TopBar(c, {}, "The Hall", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (st.decor.isNotEmpty()) Text("Hanging now: " + st.decor.mapNotNull { Life.catalog[it]?.let { d -> d.icon + " " + d.name } }.joinToString("  ·  "), color = Cream, fontSize = 13.sp)
+                Text("Decorate", color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Life.decor.forEach { d ->
+                    val have = st.inv(d.id)
+                    Row(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${d.icon}  ${d.name}", fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.weight(1f))
+                        if (have > 0) Pill("Place", onClick = { c.placeDecor(d.id) }, tag = "hb_place_${d.id}")
+                        else Text("🪙 ${Life.shopPrice(d.cost, st)}", color = Wood)
+                    }
+                }
+                Text("Staff", color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                Life.staff.forEach { sdef ->
+                    val hired = sdef.id in st.staff
+                    Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_staff_${sdef.id}")) {
+                        Text("${sdef.name}  ·  ${sdef.role}", fontWeight = FontWeight.Bold, color = Ink)
+                        Text(sdef.perk, color = Wood, fontSize = 13.sp, modifier = Modifier.padding(vertical = 4.dp))
+                        if (hired) Text("Of the hall.", color = Color(0xFF2E6B3A), fontWeight = FontWeight.SemiBold)
+                        else HbButton("Hire  ·  🪙 ${sdef.cost}", { c.hireStaff(sdef.id) }, Modifier.fillMaxWidth(), enabled = st.gold >= sdef.cost, tag = "hb_hire_${sdef.id}")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HbButton("Craft", { c.openCraft() }, Modifier.weight(1f), Wood, tag = "hb_btn_craft")
+                    HbButton("The Forge", { c.openCraft() }, Modifier.weight(1f), Wood, tag = "hb_btn_forge")
+                }
+                if (st.forge > 0) {
+                    Text("Enchant", color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Ore and a little gold, at the hall's anvil. +1 ATK or DEF, up to the forge's level.", color = Cream, fontSize = 13.sp)
+                    st.recruited().forEach { h ->
+                        Row(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Portrait(h.id, Modifier.size(40.dp).clip(CircleShape), ContentScale.Crop)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(h.def.name.split(" ").first(), fontWeight = FontWeight.Bold, color = Ink)
+                                Text("ATK ${h.atk()}  (ench ${h.enchantAtk})   DEF ${h.defn()}  (ench ${h.enchantDef})", fontSize = 11.sp, color = Wood)
+                            }
+                            Pill("+ATK", onClick = { c.enchant(h.id, false) })
+                            Spacer(Modifier.width(6.dp))
+                            Pill("+DEF", onClick = { c.enchant(h.id, true) })
+                        }
+                    }
+                }
+                if (st.roomDecor.isNotEmpty() || Life.roomItems.any { st.inv(it.id) > 0 }) {
+                    Text("Rooms", color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    st.recruited().forEach { h ->
+                        val placed = st.roomDecor[h.id] ?: emptySet()
+                        Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(10.dp)) {
+                            Text(h.def.name.split(" ").first() + if (placed.isEmpty()) "" else "  ·  " + placed.mapNotNull { Life.catalog[it]?.icon }.joinToString(" "), fontWeight = FontWeight.Bold, color = Ink)
+                            Life.roomItems.filter { st.inv(it.id) > 0 }.forEach { item ->
+                                Text("Place ${item.name} here", color = Burgundy, modifier = Modifier.padding(top = 4.dp).clickable { c.placeDecor(item.id, h.id) }.testTag("hb_room_${h.id}_${item.id}"))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun CraftScreen(c: HeartboundController) {
+    val st = c.state
+    Box(Modifier.fillMaxSize().testTag("hb_craft")) {
+        Bg("guild", 0.45f)
+        Column {
+            TopBar(c, {}, "Craft & Forge", back = { c.openHall() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Materials on hand: " + Life.materials.map { "${it.icon} ${st.inv(it.id)}" }.joinToString("   "), color = Cream, fontSize = 13.sp)
+                Life.recipes.forEach { r ->
+                    val need = when {
+                        st.forge < r.needForge -> "Needs the forge."
+                        st.garden < r.needGarden -> "Needs the garden."
+                        st.library < r.needLibrary -> "Needs the library."
+                        else -> r.inputs.joinToString { "${it.second}× ${Life.giftDef(it.first)?.name ?: Life.catalog[it.first]?.name ?: it.first}" }
+                    }
+                    Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_recipe_${r.id}")) {
+                        Text(r.name, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(r.desc, color = Wood, fontSize = 13.sp)
+                        Text(need, color = Ink, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+                        HbButton("Craft", { c.craft(r.id) }, Modifier.fillMaxWidth(), tag = "hb_craft_${r.id}")
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun TownScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_town")) {
+        Bg("town", 0.4f, night = c.isNight())
+        Column {
+            TopBar(c, {}, "Lumenreach", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("The town is ${Life.weatherLabel(c.state.world.weather)} this ${Life.seasonLabel(c.state.world.season).lowercase()}.", color = Cream, fontSize = 13.sp)
+                if (Life.merchantVisits(c.state)) HbButton("The traveling merchant", { c.openMerchant() }, Modifier.fillMaxWidth(), tag = "hb_town_merchant")
+                Life.places.forEach { pl ->
+                    Column(Modifier.fillMaxWidth().shadow(4.dp, Soft).clip(Soft).clickable { }.testTag("hb_place_${pl.id}")) {
+                        Box(Modifier.fillMaxWidth().height(120.dp)) { Bg(pl.id, 0.1f) }
+                        Column(Modifier.background(Cream.copy(alpha = 0.96f)).padding(12.dp)) {
+                            Text(pl.name, fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
+                            Text(pl.blurb, color = Wood, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun DateMapScreen(c: HeartboundController, heroId: String) {
+    val d = Heartbound.hero.getValue(heroId)
+    Box(Modifier.fillMaxSize().testTag("hb_datemap")) {
+        Bg("town", 0.4f, night = true)
+        Column {
+            TopBar(c, {}, "Go out with ${d.name.split(" ").first()}", back = { c.goHome() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Where will you take the evening?", color = Cream, fontSize = 14.sp)
+                Life.places.forEach { pl ->
+                    Column(Modifier.fillMaxWidth().shadow(4.dp, Soft).clip(Soft)
+                        .clickable { c.startDate(heroId, pl.id) }.testTag("hb_dateplace_${pl.id}")) {
+                        Box(Modifier.fillMaxWidth().height(100.dp)) { Bg(pl.id, 0.08f) }
+                        Column(Modifier.background(Cream.copy(alpha = 0.96f)).padding(12.dp)) {
+                            Text(pl.name, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(pl.blurb, color = Wood, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun MerchantScreen(c: HeartboundController) {
+    val st = c.state
+    val stock = Life.merchantStock(st)
+    Box(Modifier.fillMaxSize().testTag("hb_merchant")) {
+        Bg("market", 0.4f)
+        Column {
+            TopBar(c, {}, "Traveling Merchant", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("A wagon, a canvas, and stock that will not be here tomorrow.", color = Cream, fontSize = 13.sp)
+                stock.forEach { item ->
+                    val price = Life.shopPrice(item.cost, st)
+                    Row(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_merch_${item.id}"), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${item.icon}  ${item.name}", fontWeight = FontWeight.Bold, color = Ink)
+                            Text(item.desc, color = Wood, fontSize = 13.sp)
+                            if (st.inv(item.id) > 0) Text("Owned: ${st.inv(item.id)}", fontSize = 11.sp, color = Wood)
+                        }
+                        HbButton("🪙 $price", { c.buy(item.id, merchant = true) }, enabled = st.gold >= price, tag = "hb_buy_${item.id}")
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+

@@ -108,6 +108,16 @@ object Content {
         Achievement("coin_crown", "The Coin Crown Falls", "Defeat the goblin king."),
         Achievement("envoy_met", "When the Lanterns Fade", "Face the Covenant envoy."),
         Achievement("bond_strike", "A Bond Made Steel", "Unleash a bond combo in battle."),
+        Achievement("the_hidden_key", "The Hidden Key", "Welcome Nim Hale home."),
+        Achievement("a_private_hour", "A Private Hour", "Be trusted with a closed door."),
+        Achievement("a_day_kept", "A Day Kept", "Share a birthday in the hall."),
+        Achievement("made_by_hand", "Made by Hand", "Craft something in the hall."),
+        Achievement("a_kind_edge", "A Kind Edge", "Enchant a piece of gear."),
+        Achievement("a_lived_in_hall", "A Lived-In Hall", "Decorate the hall or a room."),
+        Achievement("the_road_calls", "The Road Calls", "Buy from the traveling merchant."),
+        Achievement("hired_hands", "Hired Hands", "Hire someone to keep the hall."),
+        Achievement("the_hall_endures", "The Hall Endures", "See the hall's own ending."),
+        Achievement("iron_and_light", "Iron and Light", "Stand through rivals and the Covenant both."),
     )
     val achById = achievements.associateBy { it.id }
 
@@ -124,6 +134,7 @@ object Content {
         "rin" -> "Sweets, and tools that open doors. He pretends not to care."
         "sera" -> "Things that grew, or that keep a trail honest."
         "yuna" -> "Herbs, seeds, and anything that heals without a ledger."
+        "nim" -> "Small lights, maps, and honest tea. She has had enough of perfume and pretense."
         else -> "Pay attention to what their hands go to."
     }
 }
@@ -185,6 +196,16 @@ object Ach {
         if ("king_fallen" in s.flags) add("coin_crown")
         if ("envoy_met" in s.flags) add("envoy_met")
         if ("used_combo" in s.flags) add("bond_strike")
+        if (s.heroes["nim"]?.recruited == true || "recruited_nim" in s.flags) add("the_hidden_key")
+        if (s.flags.any { it.startsWith("visited_") }) add("a_private_hour")
+        if (s.flags.any { it.startsWith("bday_") }) add("a_day_kept")
+        if ("crafted" in s.flags) add("made_by_hand")
+        if ("enchanted" in s.flags) add("a_kind_edge")
+        if (s.decor.isNotEmpty() || s.roomDecor.values.any { it.isNotEmpty() }) add("a_lived_in_hall")
+        if ("merchant" in s.flags) add("the_road_calls")
+        if (s.staff.isNotEmpty()) add("hired_hands")
+        if ("ending_hall" in s.flags || "ending_quiet" in s.flags || "ending_lanterns" in s.flags) add("the_hall_endures")
+        if ("ending_iron_light" in s.flags) add("iron_and_light")
         return have
     }
 }

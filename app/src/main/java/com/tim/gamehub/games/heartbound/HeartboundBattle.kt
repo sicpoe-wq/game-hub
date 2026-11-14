@@ -91,6 +91,11 @@ object Battle {
         SkillDef("shadows", "Twin Shadows", 7, "stun_attack", "allEnemies", "Two silhouettes, one strike.", combo = true),
         SkillDef("living", "Living Light", 8, "heal_attack", "all", "Heal the party and scorch the rest.", combo = true),
         SkillDef("hold", "Hold the Line", 5, "guard_attack", "all", "Brace, then answer.", combo = true),
+        SkillDef("ward", "Ward", 0, "guard", "self", "A kept light, raised as a shield."),
+        SkillDef("lanterns", "Lantern Bolt", 7, "attack", "enemy", "A clean, bright refusal."),
+        SkillDef("bind", "Bind", 4, "stun_attack", "enemy", "A line of light around a foot."),
+        SkillDef("hearth", "Hearthguard", 6, "guard_attack", "all", "Warden and knight, one door.", combo = true),
+        SkillDef("keep", "Kept Light", 14, "heal", "allAllies", "Warden and cleric, one vow.", combo = true),
     ).associateBy { it.id }
 
     val enemies = listOf(
@@ -110,6 +115,8 @@ object Battle {
         ComboDef("shadows", "Twin Shadows", setOf(HeroClass.RANGER, HeroClass.ROGUE), 40, "shadows"),
         ComboDef("living", "Living Light", setOf(HeroClass.MAGE, HeroClass.CLERIC), 40, "living"),
         ComboDef("hold", "Hold the Line", setOf(HeroClass.KNIGHT, HeroClass.RANGER), 40, "hold"),
+        ComboDef("hearth", "Hearthguard", setOf(HeroClass.WARDEN, HeroClass.KNIGHT), 40, "hearth"),
+        ComboDef("keep", "Kept Light", setOf(HeroClass.WARDEN, HeroClass.CLERIC), 40, "keep"),
     )
 
     fun classSkills(cls: HeroClass) = when (cls) {
@@ -118,6 +125,7 @@ object Battle {
         HeroClass.RANGER -> listOf("shot", "pin", "volley")
         HeroClass.ROGUE -> listOf("stab", "feint", "smoke")
         HeroClass.CLERIC -> listOf("smite", "heal", "bless")
+        HeroClass.WARDEN -> listOf("ward", "lanterns", "bind")
     }.map { skills.getValue(it) }
 
     fun maxHp(h: HeroState) = 22 + h.defn() * 3 + h.level * 5

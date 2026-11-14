@@ -97,4 +97,20 @@ class ScreensTest {
         jumpHome(state.copy(phase = "evening", expedition = Expedition("ridge_hunt", listOf("kael", "yuna"), 1, 2)))
         jumpDialogue(Travel.preview(), "travel", line = 1)
     }
+
+    @Test fun heartbound_hall() = hb { openHall() }
+    @Test fun heartbound_town() = hb { openTown() }
+    @Test fun heartbound_merchant() = hb {
+        jumpHome(state.copy(day = 9, phase = "morning", gold = 200))
+        openMerchant()
+    }
+    @Test fun heartbound_visit() = hb {
+        jumpHome(state.copy(phase = "evening", actionsLeft = 2, heroes = state.heroes + ("kael" to state.h("kael").copy(affection = 62))))
+        jumpDialogue(Life.visitScene("kael", 62), "visit", line = 1)
+    }
+    @Test fun heartbound_nim() = hb {
+        jumpHome(state.copy(day = 10, phase = "morning", world = state.world.copy(chapter = 1),
+            heroes = state.heroes + ("nim" to state.h("nim").copy(recruited = true, affection = 24, level = 2))))
+        jumpDialogue(Life.romance.first(), "event", line = 1)
+    }
 }

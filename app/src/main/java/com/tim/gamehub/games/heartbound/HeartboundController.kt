@@ -26,6 +26,11 @@ sealed class HbScreen {
     data object Log : HbScreen()
     data object CompanionPick : HbScreen()
     data object Battle : HbScreen()
+    data object Hall : HbScreen()
+    data object Town : HbScreen()
+    data object Craft : HbScreen()
+    data object Merchant : HbScreen()
+    data class DateMap(val heroId: String) : HbScreen()
 }
 
 data class ScenePlay(
@@ -167,6 +172,7 @@ class HeartboundController(
             !mira.recruited && state.day >= 2 && "offered_mira_${state.day}" !in state.flags -> Story.recruitMira
             !sera.recruited && (state.day >= 3 && (state.has("did_forest") || state.day >= 4)) && "offered_sera_${state.day}" !in state.flags -> Story.recruitSera
             !rin.recruited && state.day >= 4 && "offered_rin_${state.day}" !in state.flags -> Story.recruitRin
+            !state.h("nim").recruited && state.day >= 10 && (state.has("plot_ch1_done") || state.world.chapter >= 1 || state.day >= 16) && "offered_nim_${state.day}" !in state.flags -> Life.recruitNim
             else -> null
         }
     }
@@ -180,7 +186,7 @@ class HeartboundController(
         val next = if (state.phase == "morning") state.copy(phase = "evening", actionsLeft = state.eveningCap()) else state
         commit(next)
         screen = HbScreen.Evening
-        maybeOfferRival()
+        maybeOfferEvening()
     }
 
     fun availableQuests(): List<QuestDef> = HeartboundLogic.availableQuests(state)
@@ -212,7 +218,8 @@ class HeartboundController(
             screen = HbScreen.Result
             return true
         }
-        val exp = Expedition(q.id, party, daysLeft = (q.days - 1).coerceAtLeast(0), totalDays = q.days)
+        val shortcut = if (state.stables >= 3) 2 else if (state.stables >= 1) 1 else 0
+        val exp = Expedition(q.id, party, daysLeft = (q.days - 1 - shortcut).coerceAtLeast(0), totalDays = q.days)
         commit(state.copy(expedition = exp), toastNew = false)
         return if (q.days >= 2) { offerTravel(); true } else { startBattle(); true }
     }
@@ -284,40 +291,99 @@ class HeartboundController(
     fun dismissResult() {
         screen = HbScreen.Evening
         Travel.pendingBranch(state)?.let { openScene(it, "branch", null); return }
-        maybeOfferRival()
+        maybeOfferEvening()
     }
 
-    private fun maybeOfferRival() {
+    private fun maybeOfferEvening() {
         if (pendingGroup() != null) return
         if (state.heroes.values.any { it.injuredDays > 0 && canCare(it.id) }) return
+        Life.birthdayOf(state)?.let { openScene(Life.birthdayScene(it), "birthday", it); return }
+        Life.pendingEnding(state)?.let { openScene(it, "ending", null); return }
         val scn = pendingRival() ?: return
         openScene(scn, "rival", scn.heroId)
     }
 
-    fun buy(id: String): Boolean {
-        val gift = Heartbound.gift[id]; val gear = Heartbound.gearById[id]
-        val cost = gift?.cost ?: gear?.cost ?: return false
-        val name = gift?.name ?: gear?.name ?: return false
+    fun buy(id: String, merchant: Boolean = false): Boolean {
+        val gift = Life.giftDef(id); val gear = Heartbound.gearById[id]; val cat = Life.catalog[id]
+        val cost0 = gift?.cost ?: gear?.cost ?: cat?.cost ?: return false
+        val cost = Life.shopPrice(cost0, state)
+        val name = gift?.name ?: gear?.name ?: cat?.name ?: return false
         if (state.gold < cost) return false
-        commit(HeartboundLogic.addInv(state.copy(gold = state.gold - cost, flags = state.flags + "bought"), id))
+        var flags = state.flags + "bought"
+        if (merchant) flags = flags + "merchant"
+        commit(HeartboundLogic.addInv(state.copy(gold = state.gold - cost, flags = flags), id))
         toast = "Bought $name."
         return true
     }
     fun buyUpgrade(id: String): Boolean {
         val def = Heartbound.upgrades.firstOrNull { it.id == id } ?: return false
-        val level = when (id) { "rooms" -> state.rooms; "training" -> state.training; else -> state.tavern }
+        val level = state.wing(id)
         if (level >= def.levels.size) return false
         val cost = def.levels[level].first
         if (state.gold < cost) return false
         val next = when (id) {
             "rooms" -> state.copy(gold = state.gold - cost, rooms = level + 1)
             "training" -> state.copy(gold = state.gold - cost, training = level + 1)
-            else -> state.copy(gold = state.gold - cost, tavern = level + 1)
+            "tavern" -> state.copy(gold = state.gold - cost, tavern = level + 1)
+            "forge" -> state.copy(gold = state.gold - cost, forge = level + 1)
+            "library" -> state.copy(gold = state.gold - cost, library = level + 1)
+            "garden" -> state.copy(gold = state.gold - cost, garden = level + 1)
+            "stables" -> state.copy(gold = state.gold - cost, stables = level + 1)
+            else -> return false
         }
         commit(next)
         toast = "${def.name} improved."
         return true
     }
+    fun hireStaff(id: String): Boolean {
+        val d = Life.staffBy[id] ?: return false
+        if (id in state.staff) return false
+        if (state.gold < d.cost) return false
+        commit(state.copy(gold = state.gold - d.cost, staff = state.staff + id, flags = state.flags + "hired_$id"))
+        toast = "${d.name} has joined the hall."
+        return true
+    }
+    fun placeDecor(id: String, room: String? = null): Boolean {
+        if (state.inv(id) <= 0) return false
+        var s = HeartboundLogic.spendInv(state, id) ?: return false
+        s = if (room == null) s.copy(decor = s.decor + id)
+        else s.copy(roomDecor = s.roomDecor + (room to (s.roomDecor[room] ?: emptySet()) + id))
+        commit(s)
+        toast = "Placed."
+        return true
+    }
+    fun craft(id: String): Boolean {
+        val r = Life.recipes.firstOrNull { it.id == id } ?: return false
+        if (state.forge < r.needForge || state.garden < r.needGarden || state.library < r.needLibrary) {
+            toast = "The hall isn't ready for that work yet."; return false
+        }
+        if (r.inputs.any { state.inv(it.first) < it.second }) { toast = "You're short on materials."; return false }
+        var s = state
+        r.inputs.forEach { (i, n) -> s = HeartboundLogic.spendInv(s, i, n) ?: return false }
+        s = HeartboundLogic.addInv(s, r.output, r.outN).copy(flags = s.flags + "crafted")
+        commit(s)
+        toast = "Crafted ${r.name}."
+        return true
+    }
+    fun enchant(heroId: String, defn: Boolean = false): Boolean {
+        if (state.forge <= 0) { toast = "The forge isn't ready."; return false }
+        val cost = if (state.forge >= 2) 30 else 40
+        if (state.gold < cost || state.inv("ore") < 1) { toast = "You need coin and ore."; return false }
+        val h = state.h(heroId)
+        val cap = state.forge
+        if ((if (defn) h.enchantDef else h.enchantAtk) >= cap) { toast = "That's as far as this forge will take it."; return false }
+        var s = HeartboundLogic.spendInv(state, "ore") ?: return false
+        val nh = if (defn) h.copy(enchantDef = h.enchantDef + 1) else h.copy(enchantAtk = h.enchantAtk + 1)
+        commit(s.copy(gold = s.gold - cost, heroes = s.heroes + (heroId to nh), flags = s.flags + "enchanted"))
+        toast = "The ${if (defn) "guard" else "edge"} takes a little more light."
+        return true
+    }
+    fun openHall() { returnTo = screen; screen = HbScreen.Hall }
+    fun openTown() { returnTo = screen; screen = HbScreen.Town }
+    fun openCraft() { returnTo = screen; screen = HbScreen.Craft }
+    fun openMerchant() { returnTo = screen; screen = HbScreen.Merchant }
+    fun openDateMap(heroId: String) { if (state.actionsLeft > 0 && state.h(heroId).affection >= Heartbound.DATE_MIN) screen = HbScreen.DateMap(heroId) }
+
     fun equip(heroId: String, gearId: String): Boolean {
         val gear = Heartbound.gearById[gearId] ?: return false
         if (state.inv(gearId) <= 0) return false
@@ -336,7 +402,7 @@ class HeartboundController(
         if (state.actionsLeft <= 0) return false
         if (state.inv(giftId) <= 0) return false
         val def = Heartbound.hero.getValue(heroId)
-        val gift = Heartbound.gift[giftId] ?: return false
+        val gift = Life.giftDef(giftId) ?: return false
         val delta = Heartbound.giftDelta(def, giftId) + HeartboundLogic.eveningBonus(state)
         var s = HeartboundLogic.spendInv(state, giftId) ?: return false
         val loved = if (giftId in def.love) s.lovedGifts + "$heroId:$giftId" else s.lovedGifts
@@ -348,7 +414,7 @@ class HeartboundController(
         )
         commit(s)
         lastFocus = heroId
-        openScene(Story.giftLines(def, gift, delta), "gift", heroId)
+        openScene(Life.rareGiftScene(def, gift, delta) ?: Story.giftLines(def, gift, delta), "gift", heroId)
         return true
     }
 
@@ -363,10 +429,17 @@ class HeartboundController(
         openScene(pick, "talk", heroId)
         return true
     }
-    fun startDate(heroId: String): Boolean {
+    fun startDate(heroId: String, place: String = "town"): Boolean {
         if (state.actionsLeft <= 0 || state.h(heroId).affection < Heartbound.DATE_MIN) return false
         lastFocus = heroId
-        openScene(Story.dateFor(heroId), "date", heroId)
+        openScene(Story.dateFor(heroId, place), "date", heroId)
+        return true
+    }
+    fun canVisit(heroId: String) = state.actionsLeft > 0 && state.h(heroId).recruited && state.h(heroId).affection >= 40 && "visited_${heroId}_${state.day}" !in state.flags
+    fun startVisit(heroId: String): Boolean {
+        if (!canVisit(heroId)) return false
+        lastFocus = heroId
+        openScene(Life.visitScene(heroId, state.h(heroId).affection), "visit", heroId)
         return true
     }
 
@@ -535,6 +608,21 @@ class HeartboundController(
             screen = HbScreen.Evening
             return
         }
+        if (p.kind == "visit" && hid != null) {
+            s = s.copy(flags = s.flags + "visited_${hid}_${s.day}", actionsLeft = (s.actionsLeft - 1).coerceAtLeast(0))
+            commit(s); play = null; screen = HbScreen.Evening
+            maybeOfferJealousy()
+            return
+        }
+        if (p.kind == "birthday" && hid != null) {
+            s = s.copy(flags = s.flags + "bday_${hid}_${s.day}")
+            commit(s); play = null; screen = HbScreen.Evening
+            return
+        }
+        if (p.kind == "ending") {
+            commit(s); play = null; screen = HbScreen.Evening
+            return
+        }
         commit(s)
         play = null
         screen = when (p.kind) {
@@ -576,9 +664,9 @@ class HeartboundController(
 
     fun isNight(): Boolean {
         val bg = play?.scene?.bg
-        if (bg in setOf("festival", "harvest", "chapel")) return true
+        if (bg in setOf("festival", "harvest", "chapel", "hill", "room")) return true
         if (bg == "beach") return false
-        return state.phase == "evening" || (screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift", "group", "care", "jealousy", "rival", "plot", "travel", "branch"))
+        return state.phase == "evening" || (screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift", "group", "care", "jealousy", "rival", "plot", "travel", "branch", "visit", "birthday", "ending"))
     }
 
     fun jumpHome(s: GameState = state) {

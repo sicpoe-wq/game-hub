@@ -10,18 +10,20 @@ data class HeroState(
     val seenEvents: Set<String> = emptySet(),
     val weapon: String? = null,
     val accessory: String? = null,
+    val enchantAtk: Int = 0,
+    val enchantDef: Int = 0,
 ) {
     val def get() = Heartbound.hero.getValue(id)
     val ready get() = recruited && injuredDays <= 0
     fun atk(): Int {
         val g = Heartbound.gearById
         return def.baseAtk + (level - 1) * def.cls.atkGrowth +
-            (weapon?.let { g[it]?.atk } ?: 0) + (accessory?.let { g[it]?.atk } ?: 0)
+            (weapon?.let { g[it]?.atk } ?: 0) + (accessory?.let { g[it]?.atk } ?: 0) + enchantAtk
     }
     fun defn(): Int {
         val g = Heartbound.gearById
         return def.baseDef + (level - 1) * def.cls.defGrowth +
-            (weapon?.let { g[it]?.def } ?: 0) + (accessory?.let { g[it]?.def } ?: 0)
+            (weapon?.let { g[it]?.def } ?: 0) + (accessory?.let { g[it]?.def } ?: 0) + enchantDef
     }
     fun power(): Double = atk() + defn() * 0.5
     fun aff() = affection.coerceIn(0, Heartbound.MAX_AFF)
@@ -60,6 +62,13 @@ data class GameState(
     val anchor: DayAnchor? = null,
     val reputation: Int = 0,
     val expedition: Expedition? = null,
+    val forge: Int = 0,
+    val library: Int = 0,
+    val garden: Int = 0,
+    val stables: Int = 0,
+    val staff: Set<String> = emptySet(),
+    val decor: Set<String> = emptySet(),
+    val roomDecor: Map<String, Set<String>> = emptyMap(),
 ) {
     fun h(id: String) = heroes.getValue(id)
     fun recruited() = Heartbound.heroes.map { h(it.id) }.filter { it.recruited }
@@ -68,7 +77,12 @@ data class GameState(
     fun hallReady() = ready().filter { !onRoad(it.id) }
     fun inv(id: String) = inventory[id] ?: 0
     fun has(flag: String) = flag in flags
-    fun eveningCap() = if (tavern > 0) 2 else 1
+    fun eveningCap() = (if (tavern > 0) 2 else 1) + (if ("keeper" in staff) 1 else 0)
+    fun wing(id: String) = when (id) {
+        "rooms" -> rooms; "training" -> training; "tavern" -> tavern
+        "forge" -> forge; "library" -> library; "garden" -> garden; "stables" -> stables
+        else -> 0
+    }
 }
 
 data class QuestResult(
@@ -190,17 +204,26 @@ object HeartboundLogic {
 
     fun turnIn(state: GameState): GameState {
         val heroes = state.heroes.mapValues { (_, h) ->
-            if (h.injuredDays > 0) h.copy(injuredDays = (h.injuredDays - 1 - if (state.rooms >= 2 && h.injuredDays > 1) 1 else 0).coerceAtLeast(0)) else h
+            if (h.injuredDays > 0) {
+                val extra = (if (state.rooms >= 2 && h.injuredDays > 1) 1 else 0) + (if ("grounds" in state.staff) 1 else 0)
+                h.copy(injuredDays = (h.injuredDays - 1 - extra).coerceAtLeast(0))
+            } else h
         }
         val exp = state.expedition?.let { if (it.daysLeft > 0) it.copy(daysLeft = it.daysLeft - 1) else it }
-        return state.copy(
-            day = state.day + 1,
+        val newDay = state.day + 1
+        val season = Life.seasonOf(newDay)
+        val weather = Life.weatherFor(season, kotlin.random.Random(newDay * 17 + state.gold + state.reputation))
+        var next = state.copy(
+            day = newDay,
             phase = "morning",
             actionsLeft = 0,
             heroes = heroes,
             lastResult = null,
             expedition = exp,
+            world = state.world.copy(season = season, weather = weather),
         )
+        next = Life.harvest(next)
+        return next
     }
 
 
@@ -237,8 +260,9 @@ object HeartboundLogic {
             if (quest.chain != null) flags = flags + quest.chain
             if (quest.rival) flags = flags + "beat_vesper"
         }
+        val pay = gold + if ("scout" in state.staff && (quest.id == "escort" || quest.rival) && success) gold / 10 else 0
         return state.copy(
-            gold = state.gold + gold,
+            gold = state.gold + pay,
             heroes = heroes,
             inventory = inv,
             flags = flags,
@@ -305,5 +329,5 @@ object HeartboundLogic {
     fun addInv(state: GameState, id: String, n: Int = 1) =
         state.copy(inventory = state.inventory + (id to state.inv(id) + n))
 
-    fun eveningBonus(state: GameState) = (if (state.tavern >= 2) 1 else 0) + (if (state.tavern >= 3) 1 else 0)
+    fun eveningBonus(state: GameState) = (if (state.tavern >= 2) 1 else 0) + (if (state.tavern >= 3) 1 else 0) + (if ("cook" in state.staff) 1 else 0) + (if (state.library >= 2) 1 else 0)
 }

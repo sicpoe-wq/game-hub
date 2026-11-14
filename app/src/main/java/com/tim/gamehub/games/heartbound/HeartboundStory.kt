@@ -357,7 +357,7 @@ object Story {
             )),
     )
 
-    fun allBondEvents(): List<Scene> = events + Arc.romance
+    fun allBondEvents(): List<Scene> = events + Arc.romance + Life.romance
 
     fun eventFor(heroId: String, aff: Int, seen: Set<String>) =
         events.filter { it.heroId == heroId && aff >= it.reqAff && it.id !in seen }.minByOrNull { it.reqAff }
@@ -376,10 +376,13 @@ object Story {
         return true
     }
 
-    fun talksFor(heroId: String) = talks.filter { it.heroId == heroId }
-    fun dateFor(heroId: String) = dates.first { it.heroId == heroId }
+    fun talksFor(heroId: String) = (talks + Life.nimTalks).filter { it.heroId == heroId }
+    fun baseDate(heroId: String) = dates.firstOrNull { it.heroId == heroId } ?: Life.nimDate
+    fun dateFor(heroId: String, place: String = "town") = Life.withPlace(baseDate(heroId), place)
     fun eventById(id: String): Scene? {
-        (allBondEvents() + Arc.plot + Arc.care + Arc.rival).firstOrNull { it.id == id }?.let { return it }
+        (allBondEvents() + Arc.plot + Arc.care + Arc.rival + Life.allExtraScenes).firstOrNull { it.id == id }?.let { return it }
+        if (id.startsWith("visit_") && id.removePrefix("visit_") in Heartbound.hero) return Life.visitScene(id.removePrefix("visit_"), 50)
+        if (id.startsWith("bday_") && id.removePrefix("bday_") in Heartbound.hero) return Life.birthdayScene(id.removePrefix("bday_"))
         Arc.groupsCalendar.forEach { ev ->
             Heartbound.heroes.forEach { h ->
                 if (id == "${ev.id}_${h.id}") return Arc.groupScene(ev.id, h.id)
@@ -402,6 +405,7 @@ object Story {
         "mira" -> recruitMira
         "sera" -> recruitSera
         "rin" -> recruitRin
+        "nim" -> Life.recruitNim
         else -> recruitMira
     }
 

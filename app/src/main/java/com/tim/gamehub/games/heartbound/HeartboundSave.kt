@@ -62,11 +62,11 @@ object HeartboundSave {
 
     fun encode(s: GameState): String = buildString {
         append("v=2\n")
-        append("day=${s.day}|gold=${s.gold}|phase=${s.phase}|act=${s.actionsLeft}|rooms=${s.rooms}|train=${s.training}|tavern=${s.tavern}|rep=${s.reputation}\n")
+        append("day=${s.day}|gold=${s.gold}|phase=${s.phase}|act=${s.actionsLeft}|rooms=${s.rooms}|train=${s.training}|tavern=${s.tavern}|rep=${s.reputation}|forge=${s.forge}|lib=${s.library}|garden=${s.garden}|stables=${s.stables}\n")
         val p = s.player
         append("P|${esc(p.name)}|${p.look}|${p.pronouns}|${p.origin}|${p.charm}|${p.wit}|${p.courage}\n")
         s.heroes.values.forEach { h ->
-            append("H|${h.id}|${if (h.recruited) 1 else 0}|${h.level}|${h.xp}|${h.injuredDays}|${h.affection}|${h.weapon ?: ""}|${h.accessory ?: ""}|${h.seenEvents.joinToString(",")}\n")
+            append("H|${h.id}|${if (h.recruited) 1 else 0}|${h.level}|${h.xp}|${h.injuredDays}|${h.affection}|${h.weapon ?: ""}|${h.accessory ?: ""}|${h.seenEvents.joinToString(",")}|${h.enchantAtk}|${h.enchantDef}\n")
         }
         s.inventory.forEach { (k, v) -> if (v > 0) append("I|$k|$v\n") }
         s.flags.forEach { append("F|$it\n") }
@@ -85,6 +85,9 @@ object HeartboundSave {
         s.expedition?.let { x ->
             append("X|${x.questId}|${x.party.joinToString(",")}|${x.daysLeft}|${x.totalDays}|${x.eventsDone}|${x.flags.joinToString(",")}\n")
         }
+        if (s.staff.isNotEmpty()) append("S|${s.staff.joinToString(",")}\n")
+        if (s.decor.isNotEmpty()) append("D|${s.decor.joinToString(",")}\n")
+        s.roomDecor.forEach { (id, items) -> if (items.isNotEmpty()) append("N|$id|${items.joinToString(",")}\n") }
         s.lastResult?.let { r ->
             append("R|${r.questId}|${if (r.success) 1 else 0}|${r.chance}|${r.roll}|${r.gold}|${r.xp}|${r.leveled.joinToString(",")}|${r.injuredId ?: ""}|${r.injuryDays}|${r.loot ?: ""}|${esc(r.note)}\n")
         }
@@ -94,6 +97,10 @@ object HeartboundSave {
         var day = 1; var gold = Heartbound.START_GOLD; var phase = "morning"; var act = 0
         var rooms = 0; var train = 0; var tavern = 0; var rep = 0
         var expedition: Expedition? = null
+        var forge = 0; var library = 0; var garden = 0; var stables = 0
+        val staff = mutableSetOf<String>()
+        val decor = mutableSetOf<String>()
+        val roomDecor = mutableMapOf<String, Set<String>>()
         val heroes = Heartbound.heroes.associate { it.id to HeroState(it.id) }.toMutableMap()
         val inv = mutableMapOf<String, Int>()
         val flags = mutableSetOf<String>()
@@ -122,6 +129,10 @@ object HeartboundSave {
                         "train" -> train = v.toInt()
                         "tavern" -> tavern = v.toInt()
                         "rep" -> rep = v.toIntOrNull() ?: 0
+                        "forge" -> forge = v.toIntOrNull() ?: 0
+                        "lib" -> library = v.toIntOrNull() ?: 0
+                        "garden" -> garden = v.toIntOrNull() ?: 0
+                        "stables" -> stables = v.toIntOrNull() ?: 0
                     }
                 }
             } else if (line.startsWith("P|")) {
@@ -135,6 +146,8 @@ object HeartboundSave {
                     injuredDays = p[5].toInt(), affection = p[6].toInt(),
                     weapon = p[7].ifBlank { null }, accessory = p[8].ifBlank { null },
                     seenEvents = p.getOrElse(9) { "" }.split(",").filter { it.isNotBlank() }.toSet(),
+                    enchantAtk = p.getOrElse(10) { "0" }.toIntOrNull() ?: 0,
+                    enchantDef = p.getOrElse(11) { "0" }.toIntOrNull() ?: 0,
                 )
             } else if (line.startsWith("I|")) {
                 val p = line.split("|"); inv[p[1]] = p[2].toInt()
@@ -154,7 +167,12 @@ object HeartboundSave {
                 val suc = p.getOrElse(3) { "" }
                 report = DayReport(p[1].toInt(), p[2].ifBlank { null }, if (suc == "") null else suc.toBooleanStrictOrNull() ?: (suc == "true" || suc == "1"), p[4].toInt(), mapInts(p.getOrElse(5) { "" }), p.getOrElse(6) { "" }.split(",").filter { it.isNotBlank() }, p.getOrElse(7) { "" }.ifBlank { null }, p.getOrElse(8) { "" }.split(",").filter { it.isNotBlank() }, p.getOrElse(9) { "" }.split(",").filter { it.isNotBlank() })
             } else if (line.startsWith("G|")) log += unesc(line.substring(2))
-            else if (line.startsWith("X|")) {
+            else if (line.startsWith("S|")) staff += line.substring(2).split(",").filter { it.isNotBlank() }
+            else if (line.startsWith("D|")) decor += line.substring(2).split(",").filter { it.isNotBlank() }
+            else if (line.startsWith("N|")) {
+                val p = line.split("|")
+                roomDecor[p[1]] = p.getOrElse(2) { "" }.split(",").filter { it.isNotBlank() }.toSet()
+            } else if (line.startsWith("X|")) {
                 val p = line.split("|")
                 expedition = Expedition(
                     questId = p[1],
@@ -175,7 +193,7 @@ object HeartboundSave {
                 )
             }
         }
-        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor, rep, expedition)
+        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor, rep, expedition, forge, library, garden, stables, staff, decor, roomDecor)
     }
 
     fun preview(raw: String?): SlotInfo? {

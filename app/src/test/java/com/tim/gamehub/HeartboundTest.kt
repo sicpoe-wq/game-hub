@@ -115,7 +115,7 @@ class HeartboundTest {
         assertEquals("kael_e3", Story.eventFor("kael", 60, setOf("kael_e1", "kael_e2"))?.id)
         assertNull(Story.eventFor("kael", 100, setOf("kael_e1", "kael_e2", "kael_e3")))
         Heartbound.heroes.forEach { h ->
-            val ev = Story.events.filter { it.heroId == h.id }
+            val ev = Story.allBondEvents().filter { it.heroId == h.id && it.reqAff in setOf(20, 40, 60) }
             assertEquals("${h.id} should have 3 events", 3, ev.size)
             assertEquals(listOf(20, 40, 60), ev.map { it.reqAff })
             ev.forEach { assertTrue("${it.id} needs choices", it.choices.size >= 2) }
@@ -597,4 +597,67 @@ T|kael_t1
         assertEquals(1, c.state.expedition?.daysLeft)
         assertNull(c.state.lastResult)
     }
+
+    @Test fun secretHeroArrivesLateAndHasARoute() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        assertFalse(c.state.h("nim").recruited)
+        val recruited = c.state.heroes.mapValues { (_, h) -> if (h.id in setOf("mira","sera","rin","kael","yuna")) h.copy(recruited = true) else h }
+        c.jumpHome(c.state.copy(day = 10, phase = "morning", world = c.state.world.copy(chapter = 1), flags = c.state.flags + "plot_ch1_done", heroes = recruited))
+        c.goHome()
+        assertEquals("recruit_nim", c.play?.scene?.id)
+        repeat(20) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        assertTrue(c.state.h("nim").recruited)
+        assertTrue("the_hidden_key" in c.state.achievements)
+    }
+
+    @Test fun seasonsCycleAndMerchantAndCraftWork() {
+        val s0 = game()
+        assertEquals("spring", Life.seasonOf(1))
+        assertEquals("summer", Life.seasonOf(8))
+        assertEquals("winter", Life.seasonOf(22))
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        c.jumpHome(c.state.copy(day = 4, phase = "morning", gold = 400, forge = 1, library = 1, garden = 1, inventory = c.state.inventory + mapOf("wax" to 1, "ashglass" to 1, "ore" to 2, "herbs" to 1, "tea" to 1, "d_banner" to 1)))
+        assertTrue(Life.merchantVisits(c.state))
+        assertTrue(c.craft("lantern"))
+        assertEquals(1, c.state.inv("lantern"))
+        assertTrue("crafted" in c.state.flags)
+        assertTrue(c.enchant("kael", false))
+        assertEquals(1, c.state.h("kael").enchantAtk)
+        assertTrue(c.state.h("kael").atk() > HeartboundLogic.newGame().h("kael").atk())
+        assertTrue(c.placeDecor("d_banner"))
+        assertTrue("d_banner" in c.state.decor)
+        assertTrue(c.hireStaff("cook"))
+        assertTrue("cook" in c.state.staff)
+        val raw = HeartboundSave.encode(c.state)
+        val back = HeartboundSave.decode(raw)
+        assertEquals(1, back.forge)
+        assertEquals(1, back.h("kael").enchantAtk)
+        assertTrue("cook" in back.staff)
+        assertTrue("d_banner" in back.decor)
+        assertEquals(0, HeartboundSave.decode(HeartboundSave.encode(game()).replace("|forge=0|lib=0|garden=0|stables=0", "")).forge)
+    }
+
+    @Test fun roomVisitAndTownDateAndBirthday() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        val heroes = c.state.heroes + ("kael" to c.state.h("kael").copy(affection = 55))
+        c.jumpHome(c.state.copy(day = 7, phase = "evening", actionsLeft = 2, heroes = heroes))
+        assertTrue(c.canVisit("kael"))
+        assertTrue(c.startVisit("kael"))
+        assertEquals("visit", c.play?.kind)
+        repeat(16) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        assertTrue(c.state.flags.any { it.startsWith("visited_kael") })
+        c.jumpHome(c.state.copy(phase = "evening", actionsLeft = 2))
+        assertTrue(c.startDate("kael", "hill"))
+        assertEquals("hill", c.play?.scene?.bg)
+        repeat(16) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        // birthday of Kael is calendar day 7
+        val s = c.state.copy(day = 7, phase = "evening", flags = c.state.flags - c.state.flags.filter { it.startsWith("bday_") }.toSet())
+        assertEquals("kael", Life.birthdayOf(s))
+        val end = Life.pendingEnding(game().copy(day = 14, world = WorldState(chapter = 1), flags = setOf("plot_ch1_done")))
+        assertEquals("ending_hall", end?.id)
+    }
+
 }
