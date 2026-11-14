@@ -41,6 +41,14 @@ data class GameState(
     val flags: Set<String> = emptySet(),
     val seenTalks: Set<String> = emptySet(),
     val lastResult: QuestResult? = null,
+    val player: Player = Player(),
+    val achievements: Set<String> = emptySet(),
+    val log: List<String> = emptyList(),
+    val report: DayReport? = null,
+    val giftsGiven: Int = 0,
+    val lovedGifts: Set<String> = emptySet(),
+    val world: WorldState = WorldState(),
+    val anchor: DayAnchor? = null,
 ) {
     fun h(id: String) = heroes.getValue(id)
     fun recruited() = Heartbound.heroes.map { h(it.id) }.filter { it.recruited }
@@ -65,12 +73,33 @@ data class QuestResult(
 )
 
 object HeartboundLogic {
-    fun newGame(): GameState = GameState(
-        heroes = Heartbound.heroes.associate { d ->
+    fun newGame(player: Player = Player()): GameState {
+        val p = player.originDef().let { player.copy(charm = it.charm, wit = it.wit, courage = it.courage) }
+        val heroes = Heartbound.heroes.associate { d ->
             d.id to HeroState(d.id, recruited = d.startRecruited, level = d.startLevel, affection = d.startAff)
-        },
-        inventory = mapOf("tea" to 1),
+        }
+        val s = GameState(heroes = heroes, inventory = mapOf("tea" to 1), player = p)
+        return s.copy(achievements = Ach.evaluate(s), anchor = snapshot(s))
+    }
+
+    fun snapshot(s: GameState) = DayAnchor(
+        day = s.day, gold = s.gold,
+        aff = s.heroes.mapValues { it.value.affection },
+        recruited = s.heroes.filter { it.value.recruited }.keys,
+        achievements = s.achievements,
     )
+
+    fun summarize(before: DayAnchor, after: GameState): DayReport {
+        val aff = after.heroes.mapValues { it.value.affection - (before.aff[it.key] ?: it.value.affection) }.filter { it.value != 0 }
+        val rec = after.heroes.filter { it.value.recruited && it.key !in before.recruited }.keys.toList()
+        val newAch = (after.achievements - before.achievements).toList()
+        val r = after.lastResult
+        return DayReport(
+            day = before.day, questTitle = r?.questId?.let { Heartbound.quest[it]?.title },
+            questSuccess = r?.success, goldDelta = after.gold - before.gold, aff = aff,
+            leveled = r?.leveled ?: emptyList(), injured = r?.injuredId, recruited = rec, newAchievements = newAch,
+        )
+    }
 
     fun partyScore(state: GameState, party: List<String>, quest: QuestDef): Double {
         val members = party.map { state.h(it) }
@@ -147,7 +176,7 @@ object HeartboundLogic {
             gold = state.gold + gold,
             heroes = heroes,
             inventory = inv,
-            flags = state.flags + "quest_${quest.id}" + if (quest.place == "forest") "did_forest" else "did_town",
+            flags = state.flags + "quest_${quest.id}" + (if (quest.place == "forest") "did_forest" else "did_town") + (if (success) "won_quest" else "lost_quest"),
             lastResult = result,
             phase = "evening",
             actionsLeft = state.eveningCap(),

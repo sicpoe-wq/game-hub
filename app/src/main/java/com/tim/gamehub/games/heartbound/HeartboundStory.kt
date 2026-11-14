@@ -1,7 +1,7 @@
 package com.tim.gamehub.games.heartbound
 
-data class Line(val speaker: String, val text: String)
-data class Choice(val text: String, val delta: Int = 0, val flag: String? = null, val next: List<Line> = emptyList(), val recruit: Boolean = false)
+data class Line(val speaker: String, val text: String, val expr: String = "idle")
+data class Choice(val text: String, val delta: Int = 0, val flag: String? = null, val next: List<Line> = emptyList(), val recruit: Boolean = false, val stat: String? = null, val statMin: Int = 0, val origin: String? = null, val gain: String? = null)
 data class Scene(
     val id: String,
     val heroId: String?,
@@ -12,7 +12,7 @@ data class Scene(
     val choices: List<Choice> = emptyList(),
 )
 
-private fun L(speaker: String, text: String) = Line(speaker, text)
+private fun L(speaker: String, text: String, expr: String = "idle") = Line(speaker, text, expr)
 private fun N(text: String) = Line("", text)
 private fun sc(
     id: String, hero: String?, bg: String, vararg lines: Line,
@@ -28,7 +28,7 @@ object Story {
         L("Yuna", "Don't let him frighten you. The kettle's on, the rooms are aired, and we have been hoping someone would come."),
         L("Yuna", "We're smaller than we were. But the hall is still a hall, if you want it to be."),
         choices = listOf(
-            Choice("I'll earn the title. Starting today.", 0, next = listOf(L("Kael", "Good. I can work with that."), L("Yuna", "Then welcome home, Guildmaster."))),
+            Choice("I'll earn the title. Starting today.", 0, next = listOf(L("Kael", "Good. I can work with that."), L("Yuna", "Then welcome home, {name}.", "smile"))),
             Choice("I'm just glad the two of you stayed.", 0, next = listOf(L("Yuna", "That is a very kind thing to say on a first morning."), L("Kael", "...We'll see that you don't regret the company."))),
             Choice("A kettle sounds like the right kind of beginning.", 0, next = listOf(L("Yuna", "I was hoping you'd say that."), L("Kael", "Drink first. Then the board. The work will not drink itself."))),
         ),
@@ -78,12 +78,13 @@ object Story {
         sc("kael_e1", "kael", "guild", N("You find Kael in the yard before dawn, oiling a blade that already shines."),
             L("Kael", "This was my company's sword. They let me keep the steel when they took the colors."),
             L("Kael", "I was ordered to put a village to the torch over a missed tithe. I said no. It was the first time I had ever said it, and the last day I wore their cloak."),
-            L("Kael", "I don't tell that story often. I'm not sure why I am telling it now."),
+            L("Kael", "I don't tell that story often. I'm not sure why I am telling it now.", "grim"),
             title = "The Unfinished Sword", req = 20,
             choices = listOf(
-                Choice("Because you wanted someone here to know you.", 6, next = listOf(L("Kael", "That's a bold reading."), L("Kael", "...It isn't a wrong one."))),
+                Choice("Because you wanted someone here to know you.", 6, next = listOf(L("Kael", "That's a bold reading.", "shy"), L("Kael", "...It isn't a wrong one.", "smile"))),
                 Choice("You did the right thing. The sword knows it, even if the company didn't.", 7, next = listOf(L("Kael", "Hnh."), N("He looks at the steel a long time, then at you, and some of the iron in his shoulders eases."))),
                 Choice("Sit. You don't have to finish the story today.", 5, next = listOf(L("Kael", "I think I already did."), L("Kael", "Thank you — for the sitting, not the silence. The silence I can do alone."))),
+                Choice("I know what it costs to refuse an order. I did it too.", 8, next = listOf(L("Kael", "Then we are rarer company than I thought, {name}.", "wow"), L("Kael", "I'm glad it was you who came through that door.", "smile")), stat = "courage", statMin = 2, origin = null, gain = "courage"),
             ),
         ),
         sc("kael_e2", "kael", "guild", N("A sealed letter has arrived for Kael. The wax is the color of an old authority. He has not opened it."),
@@ -97,11 +98,11 @@ object Story {
             ),
         ),
         sc("kael_e3", "kael", "guild", N("You find him on the hall roof, a lantern unlit at his knee, the town a scatter of gold below."),
-            L("Kael", "I sleep easier knowing you're under this roof. That's an unprofessional thing to say. I'm saying it anyway."),
-            L("Kael", "If you asked me to leave tomorrow, I would go. If you asked me to stay, I would do that more gladly."),
+            L("Kael", "I sleep easier knowing you're under this roof. That's an unprofessional thing to say. I'm saying it anyway.", "shy"),
+            L("Kael", "If you asked me to leave tomorrow, I would go. If you asked me to stay, I would do that more gladly.", "smile"),
             title = "The Night Watch", req = 60,
             choices = listOf(
-                Choice("Stay. And take my hand while you do it.", 10, "kael_romance", listOf(N("His glove comes off. His hand is warm, and a little unsteady, which he will deny later."), L("Kael", "All right. I'm here."))),
+                Choice("Stay. And take my hand while you do it.", 10, "kael_romance", listOf(N("His glove comes off. His hand is warm, and a little unsteady, which he will deny later."), L("Kael", "All right. I'm here.", "shy"))),
                 Choice("I rely on you too. More than I planned to.", 9, "kael_romance", listOf(L("Kael", "Then we are both bad at planning."), L("Kael", "I find I don't mind."))),
                 Choice("Watch the town with me a while. That's enough for tonight.", 7, next = listOf(L("Kael", "It's a good town."), N("He does not move away. The lantern stays unlit, and the quiet does all the rest of the work."))),
             ),
@@ -110,12 +111,13 @@ object Story {
         sc("mira_e1", "mira", "guild", N("Mira has fallen asleep at the long table, cheek on an open book, a spill of silver hair across a diagram of the sky."),
             N("When she wakes she looks first at the page, then at you, then at the page again, as if one of you might be a variable."),
             L("Mira", "I was mapping the constellations over Lumenreach. They sit a fraction west of the academy charts. Either the sky has moved, or the academy was slightly wrong, which is the more exciting option."),
-            L("Mira", "You didn't have to stay. But I'm... glad the first face I saw was a kind one."),
+            L("Mira", "You didn't have to stay. But I'm... glad the first face I saw was a kind one.", "shy"),
             title = "Asleep on the Theorems", req = 20,
             choices = listOf(
                 Choice("Teach me the names. I'll bring the tea.", 7, next = listOf(L("Mira", "Tea and astronomy. That's a very civilized hypothesis."), L("Mira", "We'll start with the easy ones. I suspect you'll be better at this than you think."))),
                 Choice("I brought a blanket. The stars can wait an hour.", 6, next = listOf(L("Mira", "That's — oh."), N("She accepts the blanket with both hands, as if it were a rare instrument."), L("Mira", "An hour, then. Don't let me negotiate for two."))),
                 Choice("You look less alarming when you're not mid-experiment.", 4, next = listOf(L("Mira", "I shall add that to my notes. 'Appears less alarming when horizontal.'"), L("Mira", "Thank you for waking me kindly."))),
+                Choice("If the academy charts are wrong, we should write better ones. I'll help.", 8, next = listOf(L("Mira", "You said 'we.' That's my favorite pronoun, in this context.", "wow"), L("Mira", "Bring ink tomorrow, {name}.", "smile")), stat = "wit", statMin = 2, gain = "wit"),
             ),
         ),
         sc("mira_e2", "mira", "guild", N("A meek plume of violet smoke is curling from under the storeroom door. Mira is already apologizing to the doorframe."),
@@ -133,7 +135,7 @@ object Story {
             L("Mira", "I never stopped looking up. It's just nicer, it turns out, with someone else in the frame."),
             title = "The Little Orrery", req = 60,
             choices = listOf(
-                Choice("Then I'll keep standing here, if you'll have me.", 10, "mira_romance", listOf(L("Mira", "I have run the numbers."), L("Mira", "The numbers are very much in favor of you staying."))),
+                Choice("Then I'll keep standing here, if you'll have me.", 10, "mira_romance", listOf(L("Mira", "I have run the numbers."), L("Mira", "The numbers are very much in favor of you staying.", "shy"))),
                 Choice("What do you wish for, when you look up?", 8, "mira_romance", listOf(L("Mira", "A room with a window. Work that doesn't have to hide. And —"), L("Mira", "Someone who asks me questions like that."))),
                 Choice("It's a beautiful sky. Thank you for sharing it.", 7, next = listOf(L("Mira", "Sharing is a kind of data."), N("She smiles at the old joke, and does not step away from your shoulder."))),
             ),
@@ -147,6 +149,7 @@ object Story {
                 Choice("That was decent of you. You can admit it.", 7, next = listOf(L("Rin", "Ugh. Decency. Don't tell the alleys."), L("Rin", "...Thanks, I guess, for not assuming the worst first."))),
                 Choice("You wanted me to see you do it.", 6, next = listOf(L("Rin", "That's a dangerous theory."), L("Rin", "Maybe I did. Maybe I wanted the new master to know I can be more than a window."))),
                 Choice("Next time, skip the theft and just walk her the purse.", 4, next = listOf(L("Rin", "Where's the theatre in that?"), L("Rin", "Fine. Once. For you."))),
+                Choice("You wanted a witness who would think well of you. I do.", 8, next = listOf(L("Rin", "That's illegal.", "shy"), L("Rin", "Say it quieter next time. Or don't.", "smile")), stat = "charm", statMin = 2, gain = "charm"),
             ),
         ),
         sc("rin_e2", "rin", "tavern", N("A stranger leaves the tavern as you arrive. Rin's smile is the wrong shape."),
@@ -164,7 +167,7 @@ object Story {
             L("Rin", "It's just... the soup is decent. The lock on my door is one I set myself. And you keep looking at me like I'm someone worth keeping around."),
             title = "After Hours", req = 60,
             choices = listOf(
-                Choice("It's a home if you want it. I want you to stay.", 10, "rin_romance", listOf(L("Rin", "That's a big thing."), N("He looks at the lantern instead of you, then gives up and looks at you anyway."), L("Rin", "All right. I'll stay. Don't get weird about it. Or do. I might not mind."))),
+                Choice("It's a home if you want it. I want you to stay.", 10, "rin_romance", listOf(L("Rin", "That's a big thing."), N("He looks at the lantern instead of you, then gives up and looks at you anyway."), L("Rin", "All right. I'll stay. Don't get weird about it. Or do. I might not mind.", "shy"))),
                 Choice("Bump his shoulder, lightly, and let that be the promise.", 8, "rin_romance", listOf(L("Rin", "Wow. Very eloquent."), L("Rin", "I'm keeping that, just so you know."))),
                 Choice("You are worth keeping around. I'll say it as many times as you need.", 9, "rin_romance", listOf(L("Rin", "Once is already going to live in my head rent-free."), L("Rin", "Say it again tomorrow anyway."))),
             ),
@@ -192,7 +195,7 @@ object Story {
         ),
         sc("sera_e3", "sera", "forest", N("She takes you off the marked path to a little stone shrine and a sapling tied with a faded green ribbon."),
             L("Sera", "The watch tower stood here. I planted this the spring after. I didn't think I'd show anyone."),
-            L("Sera", "I still don't know if the woods will forgive us. I know I wanted you to see what I'm trying to keep."),
+            L("Sera", "I still don't know if the woods will forgive us. I know I wanted you to see what I'm trying to keep.", "shy"),
             title = "The Sapling", req = 60,
             choices = listOf(
                 Choice("Then we'll keep it together. I'm not going anywhere.", 10, "sera_romance", listOf(L("Sera", "That's a vow, where I come from."), L("Sera", "I'll hold you to it. Gladly."))),
@@ -226,7 +229,7 @@ object Story {
             L("Yuna", "I think purpose looks a little like this: a door we leave unlatched, a garden that needs water, and a person I am glad to see at the end of a long day."),
             title = "Sunset on the Steps", req = 60,
             choices = listOf(
-                Choice("If I'm that person, then I'm exactly where I should be.", 10, "yuna_romance", listOf(L("Yuna", "You are."), N("She sets her cup down so she can hold your hand properly, like a blessing she has decided not to be shy about."))),
+                Choice("If I'm that person, then I'm exactly where I should be.", 10, "yuna_romance", listOf(L("Yuna", "You are.", "shy"), N("She sets her cup down so she can hold your hand properly, like a blessing she has decided not to be shy about."))),
                 Choice("Take her hand. Let the sunset do some of the talking.", 10, "yuna_romance", listOf(L("Yuna", "Oh."), L("Yuna", "Yes. This is also a kind of prayer."))),
                 Choice("I'm glad you chose this hall. I'm glad you chose us.", 8, next = listOf(L("Yuna", "Us is a lovely word. I'll keep it."), L("Yuna", "Drink your tea before it cools, Guildmaster. Some blessings are practical."))),
             ),
@@ -371,5 +374,28 @@ object Story {
         "sera" -> recruitSera
         "rin" -> recruitRin
         else -> recruitMira
+    }
+
+    fun introFor(p: Player): Scene {
+        val extra = when (p.origin) {
+            "soldier" -> listOf(L("Kael", "You carry yourself like someone who has already said no to a bad order. I can work with that, {name}.", "smile"))
+            "scholar" -> listOf(L("Yuna", "A scholar's hands. The hall has missed a good library, {name}.", "smile"))
+            "merchant" -> listOf(L("Yuna", "You look like someone who has talked a stall down to a fair price. We'll need that.", "smile"))
+            else -> listOf(L("Yuna", "A traveler's pack, and a key. That's as honest a beginning as any, {name}.", "smile"))
+        }
+        val base = intro
+        val originChoice = when (p.origin) {
+            "soldier" -> Choice("I left a banner. I won't waste a hall.", 0, next = listOf(L("Kael", "Then we understand each other.", "smile")), origin = "soldier")
+            "scholar" -> Choice("I read the ledger on the way in. We'll put the books in order.", 0, next = listOf(L("Yuna", "I was hoping you'd say that.", "smile")), origin = "scholar", stat = "wit", statMin = 2)
+            "merchant" -> Choice("A hall is a kind of shop. I'll keep it solvent, and kind.", 0, next = listOf(L("Yuna", "Solvent and kind. That's a prayer I can say.", "smile")), origin = "merchant")
+            else -> Choice("I don't have a house behind me. I'd like this to be one.", 0, next = listOf(L("Yuna", "Then it will be, {name}.", "smile")), origin = "wanderer")
+        }
+        return base.copy(lines = base.lines + extra, choices = base.choices + originChoice)
+    }
+
+    fun unlocked(c: Choice, p: Player): Boolean {
+        if (c.stat != null && p.stat(c.stat) < c.statMin) return false
+        if (c.origin != null && p.origin != c.origin) return false
+        return true
     }
 }

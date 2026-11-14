@@ -45,6 +45,30 @@ class ScreensTest {
     }
     @Test fun heartbound_home() = hb { }
     @Test fun heartbound_board() = hb { openBoard() }
-    @Test fun heartbound_dialogue() = hb { jumpDialogue(Story.eventById("kael_e1")!!, "event", line = 2) }
+    @Test fun heartbound_dialogue() = hb { jumpDialogue(Story.eventById("kael_e1")!!, "event", line = 3) }
     @Test fun heartbound_profile() = hb { openProfile("sera") }
+
+    @Test fun heartbound_create() = p.snapshot {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.draft = Player("Tim", "d", "he", "soldier", 1, 0, 2)
+        c.jumpScreen(HbScreen.Create)
+        HeartboundGame({}, controller = c, instantText = true)
+    }
+    @Test fun heartbound_slots() = p.snapshot {
+        val store = MemorySave()
+        HeartboundController(store, instantText = true).newGame(Player("Tim", "d", "he", "soldier"), 0)
+        val c = HeartboundController(store, instantText = true)
+        c.openSlots("load")
+        HeartboundGame({}, controller = c, instantText = true)
+    }
+    @Test fun heartbound_journal() = hb { openJournal() }
+    @Test fun heartbound_summary() = hb {
+        jumpHome(state.copy(phase = "evening", report = DayReport(5, "Herb Run", true, 35, mapOf("kael" to 2, "yuna" to 2), listOf("kael"), null, listOf("mira"), listOf("first_job", "a_guest"))))
+        jumpScreen(HbScreen.Summary)
+    }
+    @Test fun heartbound_evening() = hb { jumpHome(state.copy(phase = "evening", actionsLeft = 2)) }
+    @Test fun heartbound_dialogue_bond() = hb {
+        jumpHome(state.copy(phase = "evening", heroes = state.heroes + ("kael" to state.h("kael").copy(affection = 62))))
+        jumpDialogue(Story.eventById("kael_e3")!!, "event", line = 1)
+    }
 }

@@ -228,4 +228,104 @@ class HeartboundTest {
         assertEquals("evening", b.state.phase)
         assertEquals(HbScreen.Evening, b.screen)
     }
+
+    @Test fun v1SaveMigratesAndV2RoundTripsPlayer() {
+        val v1 = HeartboundSave.encode(HeartboundLogic.newGame()) // actually v2 now; craft a raw v1
+        val rawV1 = """
+v=1
+day=6|gold=210|phase=evening|act=1|rooms=1|train=0|tavern=1
+H|kael|1|3|10|0|24||charm|kael_e1
+H|yuna|1|2|0|0|14|||
+H|mira|1|1|0|0|8|||
+H|rin|0|1|0|0|0|||
+H|sera|0|1|0|0|0|||
+I|tea|2
+F|won_quest
+T|kael_t1
+""".trimIndent()
+        val migrated = HeartboundSave.decode(rawV1)
+        assertEquals(6, migrated.day)
+        assertEquals(210, migrated.gold)
+        assertEquals(1, migrated.tavern)
+        assertEquals(24, migrated.h("kael").affection)
+        assertEquals("charm", migrated.h("kael").accessory)
+        assertEquals("Alex", migrated.player.name) // default filled in
+        assertTrue("won_quest" in migrated.flags)
+        val store = MemorySave()
+        // simulate prefs migration: empty slots, legacy body written to slot 0
+        store.writeSlot(0, rawV1); store.lastSlot = 0
+        val c = HeartboundController(store, instantText = true)
+        assertTrue(c.loadSave())
+        assertEquals(6, c.state.day)
+        assertEquals(24, c.state.h("kael").affection)
+        // custom player survives a v2 round trip
+        val withP = migrated.copy(player = Player("Tim", "d", "he", "soldier", 1, 0, 2), achievements = setOf("first_dawn", "named"))
+        val back = HeartboundSave.decode(HeartboundSave.encode(withP))
+        assertEquals("Tim", back.player.name)
+        assertEquals("d", back.player.look)
+        assertEquals("he", back.player.pronouns)
+        assertEquals("soldier", back.player.origin)
+        assertEquals(2, back.player.courage)
+        assertEquals(setOf("first_dawn", "named"), back.achievements)
+    }
+
+    @Test fun slotsDoNotOverwriteEachOther() {
+        val store = MemorySave()
+        val a = HeartboundController(store, instantText = true)
+        a.newGame(Player("North", "a", "they", "wanderer"), slot = 0)
+        val b = HeartboundController(store, instantText = true)
+        b.newGame(Player("South", "b", "she", "scholar"), slot = 1)
+        assertEquals("South", HeartboundSave.decode(store.slot(1)!!).player.name)
+        assertEquals("North", HeartboundSave.decode(store.slot(0)!!).player.name)
+        a.loadSlot(0)
+        assertEquals("North", a.state.player.name)
+        assertEquals(2, a.slotInfos().count { !it.empty })
+    }
+
+    @Test fun voiceAndStatGates() {
+        val p = Player("Tim", "a", "he", "soldier", 1, 0, 2)
+        assertEquals("Tim kept his word, and he is here.", Voice.apply("{name} kept {their} word, and {they} {are} here.", p))
+        val she = Player("Ada", "b", "she", "scholar", 1, 2, 0)
+        assertEquals("Ada kept her word, and she is here.", Voice.apply("{name} kept {their} word, and {they} {are} here.", she))
+        val intro = Story.introFor(p)
+        assertTrue(intro.lines.any { it.text.contains("{name}") || Voice.apply(it.text, p).contains("Tim") })
+        assertTrue(intro.choices.any { it.origin == "soldier" && Story.unlocked(it, p) })
+        assertFalse(intro.choices.any { it.origin == "scholar" && Story.unlocked(it, p) })
+        val ev = Story.eventById("kael_e1")!!
+        val gated = ev.choices.filter { it.stat == "courage" }
+        assertTrue(gated.isNotEmpty())
+        assertTrue(Story.unlocked(gated.first(), p))
+        assertFalse(Story.unlocked(gated.first(), Player(origin = "wanderer", courage = 1, charm = 1, wit = 1)))
+    }
+
+    @Test fun achievementsAndDailySummary() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame(Player("Tim", "d", "he", "soldier"))
+        assertTrue("first_dawn" in c.state.achievements)
+        assertTrue("named" in c.state.achievements)
+        repeat(24) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        c.openEvening(); c.turnIn()
+        assertEquals(HbScreen.Summary, c.screen)
+        assertNotNull(c.state.report)
+        assertEquals(1, c.state.report!!.day)
+        c.dismissSummary()
+        assertEquals(2, c.state.day)
+        // Day 2 morning auto-offers Mira; skip her intro if it opened
+        repeat(24) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        assertEquals(HbScreen.Home, c.screen)
+        // a win flags first_job
+        c.beginParty("cat"); c.toggleParty("kael")
+        assertTrue(c.confirmQuest(0))
+        assertTrue("won_quest" in c.state.flags)
+        assertTrue("first_job" in c.state.achievements)
+    }
+
+    @Test fun giftHintsUnlockAtFriend() {
+        val kael = Heartbound.hero.getValue("kael")
+        val vague = Content.giftHint(kael, 8)
+        val clear = Content.giftHint(kael, 20)
+        assertTrue(vague.contains("blade") || vague.contains("Practical"))
+        assertTrue(clear.contains("Whetstone"))
+        assertFalse(vague.contains("Whetstone"))
+    }
 }

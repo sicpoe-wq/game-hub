@@ -14,7 +14,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,8 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Title -> onExit()
             HbScreen.Home, HbScreen.Evening -> c.backToTitle()
             HbScreen.Dialogue -> if (c.showingChoices()) { /* wait */ } else c.advance()
+            HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log -> c.closeMenu()
+            HbScreen.Summary -> c.dismissSummary()
             else -> c.goHome()
         }
     }
@@ -69,6 +73,13 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             is HbScreen.Profile -> ProfileScreen(c, s.heroId)
             is HbScreen.Gift -> GiftScreen(c, s.heroId)
             HbScreen.Dialogue -> DialogueScreen(c, instant)
+            HbScreen.Create -> CreateScreen(c)
+            HbScreen.Slots -> SlotsScreen(c)
+            HbScreen.Settings -> SettingsScreen(c)
+            HbScreen.Journal -> JournalScreen(c)
+            HbScreen.Trophies -> TrophyScreen(c)
+            HbScreen.Summary -> SummaryScreen(c)
+            HbScreen.Log -> LogScreen(c)
         }
         c.toast?.let { msg ->
             LaunchedEffect(msg) { delay(1800); c.toast = null }
@@ -78,26 +89,55 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     }
 }
 
-@Composable private fun Bg(name: String, dim: Float = 0.18f) {
-    val res = when (name) {
-        "tavern" -> R.drawable.bg_tavern
-        "town" -> R.drawable.bg_town
-        "forest" -> R.drawable.bg_forest
-        else -> R.drawable.bg_guild
+@Composable private fun Bg(name: String, dim: Float = 0.18f, night: Boolean = false) {
+    val res = when (name to night) {
+        "tavern" to true -> R.drawable.bg_tavern_night
+        "town" to true -> R.drawable.bg_town_night
+        "forest" to true -> R.drawable.bg_forest_night
+        "guild" to true -> R.drawable.bg_guild_night
+        "tavern" to false -> R.drawable.bg_tavern
+        "town" to false -> R.drawable.bg_town
+        "forest" to false -> R.drawable.bg_forest
+        else -> if (night) R.drawable.bg_guild_night else R.drawable.bg_guild
     }
     Image(painterResource(res), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     if (dim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
 }
 
-@Composable private fun Portrait(id: String, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Fit) {
-    val res = when (id) {
+@Composable private fun Portrait(id: String, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Fit, expr: String = "idle") {
+    val key = if (expr in setOf("idle", "neutral", "", "default")) id else "${id}_$expr"
+    val res = when (key) {
         "mira" -> R.drawable.portrait_mira
+        "mira_smile" -> R.drawable.portrait_mira_smile
+        "mira_shy" -> R.drawable.portrait_mira_shy
+        "mira_grim" -> R.drawable.portrait_mira_grim
+        "mira_wow" -> R.drawable.portrait_mira_wow
         "rin" -> R.drawable.portrait_rin
+        "rin_smile" -> R.drawable.portrait_rin_smile
+        "rin_shy" -> R.drawable.portrait_rin_shy
+        "rin_grim" -> R.drawable.portrait_rin_grim
+        "rin_wow" -> R.drawable.portrait_rin_wow
         "sera" -> R.drawable.portrait_sera
+        "sera_smile" -> R.drawable.portrait_sera_smile
+        "sera_shy" -> R.drawable.portrait_sera_shy
+        "sera_grim" -> R.drawable.portrait_sera_grim
+        "sera_wow" -> R.drawable.portrait_sera_wow
         "yuna" -> R.drawable.portrait_yuna
+        "yuna_smile" -> R.drawable.portrait_yuna_smile
+        "yuna_shy" -> R.drawable.portrait_yuna_shy
+        "yuna_grim" -> R.drawable.portrait_yuna_grim
+        "yuna_wow" -> R.drawable.portrait_yuna_wow
+        "kael_smile" -> R.drawable.portrait_kael_smile
+        "kael_shy" -> R.drawable.portrait_kael_shy
+        "kael_grim" -> R.drawable.portrait_kael_grim
+        "kael_wow" -> R.drawable.portrait_kael_wow
+        "a", "look_a" -> R.drawable.look_a
+        "b", "look_b" -> R.drawable.look_b
+        "c", "look_c" -> R.drawable.look_c
+        "d", "look_d" -> R.drawable.look_d
         else -> R.drawable.portrait_kael
     }
-    Image(painterResource(res), Heartbound.hero[id]?.name, modifier, contentScale = scale)
+    Image(painterResource(res), Heartbound.hero[id]?.name ?: id, modifier, contentScale = scale)
 }
 
 @Composable private fun GoldChip(gold: Int) {
@@ -142,7 +182,13 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                 HbButton("Continue", { c.loadSave() }, Modifier.fillMaxWidth(), Gold, tag = "hb_continue")
                 Spacer(Modifier.height(10.dp))
             }
-            HbButton(if (c.hasSave) "New Game" else "Begin", { c.newGame() }, Modifier.fillMaxWidth(), tag = "hb_new")
+            HbButton(if (c.hasSave) "New Game" else "Begin", { c.openSlots("new") }, Modifier.fillMaxWidth(), tag = "hb_new")
+            Spacer(Modifier.height(10.dp))
+            if (c.hasSave) {
+                HbButton("Load", { c.openSlots("load") }, Modifier.fillMaxWidth(), Wood, tag = "hb_load")
+                Spacer(Modifier.height(10.dp))
+            }
+            Pill("Settings", onClick = { c.openSettings() }, tag = "hb_settings")
             Spacer(Modifier.height(10.dp))
             Pill("‹  Back to Hub", onClick = onExit, tag = "hb_hub")
             Spacer(Modifier.height(12.dp))
@@ -166,11 +212,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
 @Composable private fun HomeScreen(c: HeartboundController, onExit: () -> Unit, morning: Boolean) {
     val st = c.state
     Box(Modifier.fillMaxSize().testTag(if (morning) "hb_home" else "hb_evening")) {
-        Bg("guild", if (morning) 0.22f else 0.40f)
+        Bg("guild", if (morning) 0.22f else 0.28f, night = !morning)
         Column(Modifier.fillMaxSize()) {
             TopBar(c, onExit, if (morning) "Day ${st.day}  ·  Morning" else "Day ${st.day}  ·  Evening")
-            Text(if (morning) "The hall is awake. What will you do?" else "The work is done. The evening is yours.",
-                color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(if (morning) "Morning, ${st.player.name}. The hall is awake." else "The work is done, ${st.player.name}. The evening is yours.",
+                color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_greet"))
             Spacer(Modifier.height(12.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 st.recruited().forEach { h ->
@@ -191,6 +237,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HbButton("Shop", { c.openShop() }, Modifier.weight(1f), Wood, tag = "hb_btn_shop")
                         HbButton("Upgrades", { c.openUpgrades() }, Modifier.weight(1f), Wood, tag = "hb_btn_upgrades")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Pill("Journal", onClick = { c.openJournal() }, tag = "hb_btn_journal")
+                        Pill("Achievements", onClick = { c.openTrophies() }, tag = "hb_btn_ach")
+                        Pill("Settings", onClick = { c.openSettings() })
                     }
                     Pill("Rest today  ·  skip to evening", onClick = { c.openEvening() }, tag = "hb_btn_rest")
                 }
@@ -439,6 +490,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         Bg("guild", 0.4f)
         Column {
             TopBar(c, {}, "A gift for ${d.name.split(" ").first()}", back = { c.goHome() })
+            Text(Content.giftHint(d, c.state.h(id).affection), color = Cream, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_hint"))
             if (gifts.isEmpty()) Text("The satchel is empty. Visit the market first.", color = Cream, modifier = Modifier.padding(20.dp))
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 gifts.forEach { g ->
@@ -464,14 +516,20 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     val speaker = line?.speaker ?: ""
     val byName = remember { Heartbound.heroes.associate { it.name to it.id } }
     val face = byName[speaker] ?: p.heroId
+    val expr = line?.expr ?: "idle"
     val full = line?.text ?: ""
-    var shown by remember(full, p.lineIndex, p.followIndex, p.followup) { mutableIntStateOf(if (instant) full.length else 0) }
-    LaunchedEffect(full, p.lineIndex, p.followIndex, p.followup, instant) {
-        if (instant) { shown = full.length; return@LaunchedEffect }
+    val delayMs = if (instant) 0 else c.settings.delayMs()
+    val already = c.lineId()?.let { c.isSeen(it) } == true
+    var shown by remember(full, p.lineIndex, p.followIndex, p.followup) {
+        mutableIntStateOf(if (instant || delayMs == 0 || (c.settings.skipSeen && already)) full.length else 0)
+    }
+    LaunchedEffect(full, p.lineIndex, p.followIndex, p.followup, instant, delayMs) {
+        if (instant || delayMs == 0 || (c.settings.skipSeen && already)) { shown = full.length; c.skipSeenLines(); return@LaunchedEffect }
         shown = 0
-        while (shown < full.length) { delay(16); shown++ }
+        while (shown < full.length) { delay(delayMs.toLong()); shown++ }
     }
     val done = shown >= full.length
+    val night = c.isNight()
     Box(Modifier.fillMaxSize().testTag("hb_talk").clickable {
         when {
             p.awaitingChoice -> {}
@@ -479,10 +537,17 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             else -> c.advance()
         }
     }) {
-        Bg(p.scene.bg, 0.12f)
-        // top: title / hearts
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            p.scene.title?.let { Text(it, color = Gold, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f)) } ?: Spacer(Modifier.weight(1f))
+        Bg(p.scene.bg, 0.12f, night = night)
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Pill("Log", onClick = { c.openLog() }, tag = "hb_log")
+            Spacer(Modifier.width(8.dp))
+            Pill(if (done && c.hasMoreLines()) "Skip" else "Skip", onClick = {
+                shown = full.length
+                var g = 0
+                while (g++ < 30 && c.hasMoreLines() && !c.showingChoices()) c.advance()
+                if (!c.hasMoreLines() && !c.showingChoices()) c.advance()
+            })
+            p.scene.title?.let { Text(it, color = Gold, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp).weight(1f)) } ?: Spacer(Modifier.weight(1f))
             p.heroId?.let { hid ->
                 Column(horizontalAlignment = Alignment.End) {
                     Text(Heartbound.hero.getValue(hid).name, color = Cream, fontSize = 12.sp)
@@ -491,14 +556,16 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             }
         }
         if (face != null) {
-            Portrait(face, Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.70f).padding(bottom = 150.dp))
+            Portrait(face, Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.70f).padding(bottom = 150.dp), expr = expr)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp, 8.dp)) {
             if (p.awaitingChoice) {
-                p.scene.choices.forEachIndexed { i, ch ->
-                    Text(ch.text, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).shadow(4.dp, Soft).background(Cream, Soft)
-                            .clickable { c.choose(i) }.padding(14.dp).testTag("hb_choice_$i"))
+                c.choices().forEachIndexed { i, (ch, ok) ->
+                    val need = if (!ok && ch.stat != null) "  (${ch.stat.replaceFirstChar { it.titlecase() }} ${ch.statMin})" else ""
+                    Text(ch.text + need, color = if (ok) Ink else Wood, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).shadow(4.dp, Soft)
+                            .background(if (ok) Cream else Color(0xFFD7D0C8), Soft)
+                            .clickable(enabled = ok) { c.choose(i) }.padding(14.dp).testTag("hb_choice_$i"))
                 }
             } else {
                 Box(Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(18.dp)).background(Night, RoundedCornerShape(18.dp))
@@ -513,6 +580,225 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                         Text(if (done) "▸" else "…", color = Gold, fontSize = 14.sp, modifier = Modifier.align(Alignment.End))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable private fun CreateScreen(c: HeartboundController) {
+    val d = c.draft
+    Box(Modifier.fillMaxSize().testTag("hb_create")) {
+        Bg("guild", 0.4f)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Text("Who walks through the door?", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = d.name, onValueChange = { c.draft = d.copy(name = it.take(16)) },
+                label = { Text("Your name") }, singleLine = true,
+                colors = TextFieldDefaults.colors(focusedTextColor = Cream, unfocusedTextColor = Cream, focusedContainerColor = Night, unfocusedContainerColor = Night, cursorColor = Gold, focusedIndicatorColor = Gold, unfocusedIndicatorColor = Cream, focusedLabelColor = Gold, unfocusedLabelColor = Cream),
+                modifier = Modifier.fillMaxWidth().testTag("hb_name")
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("Look", color = Cream, fontWeight = FontWeight.Bold)
+            Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Content.looks.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { look ->
+                            Column(Modifier.weight(1f).shadow(4.dp, Soft).background(if (d.look == look.id) Gold else Cream, Soft)
+                                .clickable { c.draft = d.copy(look = look.id) }.padding(8.dp).testTag("hb_look_${look.id}"),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                Portrait(look.id, Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(10.dp)), ContentScale.Crop)
+                                Text(look.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            Text("Pronouns", color = Cream, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+            Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PronounSet.ALL.forEach { pr ->
+                    Pill(pr.label, onClick = { c.draft = d.copy(pronouns = pr.id) }, fill = if (d.pronouns == pr.id) Gold else Cream, tag = "hb_pr_${pr.id}")
+                }
+            }
+            Text("Where did you come from?", color = Cream, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+            Content.origins.forEach { o ->
+                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp).background(if (d.origin == o.id) Gold else Cream.copy(alpha = 0.95f), Soft)
+                    .clickable { c.draft = d.copy(origin = o.id, charm = o.charm, wit = o.wit, courage = o.courage) }.padding(12.dp).testTag("hb_origin_${o.id}")) {
+                    Text(o.name, fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
+                    Text(o.blurb, color = Wood, fontSize = 13.sp)
+                    Text("Charm ${o.charm}   Wit ${o.wit}   Courage ${o.courage}", color = Burgundy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            HbButton("Enter the hall", { c.newGame(c.draft) }, Modifier.fillMaxWidth(), enabled = d.name.isNotBlank(), tag = "hb_begin")
+            Spacer(Modifier.height(10.dp))
+            Pill("‹  Back", onClick = { c.backToTitle() })
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable private fun SlotsScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_slots")) {
+        Bg("guild", 0.45f)
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Text(if (c.slotMode == "new") "Choose a ledger" else "Open a ledger", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Text(if (c.slotMode == "new") "A used slot will be overwritten." else "Pick a saved hall to return to.", color = Cream, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+            c.slotInfos().forEach { sl ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 10.dp).background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp)
+                    .testTag("hb_slot_${sl.index}"), verticalAlignment = Alignment.CenterVertically) {
+                    if (!sl.empty) Portrait(sl.look, Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)), ContentScale.Crop)
+                    else Box(Modifier.size(56.dp).background(Color(0xFFD7D0C8), RoundedCornerShape(10.dp)))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        if (sl.empty) Text("Empty slot ${sl.index + 1}", color = Wood, fontWeight = FontWeight.Bold)
+                        else {
+                            Text("${sl.name}  ·  ${sl.origin}", fontWeight = FontWeight.Bold, color = Ink)
+                            Text("Day ${sl.day}  ·  🪙 ${sl.gold}  ·  ${sl.phase}", fontSize = 12.sp, color = Wood)
+                        }
+                    }
+                    if (c.slotMode == "new") {
+                        Text(if (sl.empty) "Begin" else "Overwrite", color = Cream, modifier = Modifier.background(Burgundy, Soft).clickable { c.openCreate(sl.index) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    } else if (!sl.empty) {
+                        Text("Load", color = Cream, modifier = Modifier.background(Burgundy, Soft).clickable { c.loadSlot(sl.index) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Erase", color = Cream, modifier = Modifier.background(Wood, Soft).clickable { c.deleteSlot(sl.index) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Pill("‹  Back", onClick = { c.backToTitle() })
+        }
+    }
+}
+
+@Composable private fun SettingsScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_settings_screen")) {
+        Bg("guild", 0.45f, night = c.state.phase == "evening")
+        Column(Modifier.padding(16.dp)) {
+            Text("Settings", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Spacer(Modifier.height(16.dp))
+            Text("Text speed", color = Cream, fontWeight = FontWeight.Bold)
+            Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(3 to "Slow", 2 to "Normal", 1 to "Fast", 0 to "Instant").forEach { (n, lab) ->
+                    Pill(lab, onClick = { c.setSpeed(n) }, fill = if (c.settings.textSpeed == n) Gold else Cream)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.setSkipSeen(!c.settings.skipSeen) }.testTag("hb_skip")) {
+                Text(if (c.settings.skipSeen) "●" else "○", color = Gold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Skip seen text", color = Cream, fontWeight = FontWeight.Bold)
+                    Text("Already-read lines jump to the end.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            Pill("‹  Back", onClick = { c.closeMenu() })
+        }
+    }
+}
+
+@Composable private fun JournalScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_journal")) {
+        Bg("guild", 0.4f, night = c.isNight())
+        Column {
+            TopBar(c, {}, "Relationship journal", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Charm ${c.state.player.charm}   Wit ${c.state.player.wit}   Courage ${c.state.player.courage}", color = Gold, fontWeight = FontWeight.SemiBold)
+                Heartbound.heroes.forEach { d ->
+                    val h = c.state.h(d.id)
+                    Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_j_${d.id}")) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (h.recruited) Portrait(d.id, Modifier.size(56.dp).clip(CircleShape), ContentScale.Crop)
+                            else Box(Modifier.size(56.dp).background(Color(0xFFD7D0C8), CircleShape), contentAlignment = Alignment.Center) { Text("?", color = Wood, fontWeight = FontWeight.Bold) }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(if (h.recruited) d.name else "Someone not yet of the hall", fontWeight = FontWeight.Bold, color = Ink)
+                                if (h.recruited) {
+                                    Text("${d.cls.title}  ·  ${h.tier().label}  ·  ${h.affection}/100", fontSize = 12.sp, color = Wood)
+                                    Hearts(h.affection, 12)
+                                } else Text("A rumor, a knock, a path not yet taken.", fontSize = 12.sp, color = Wood)
+                            }
+                        }
+                        if (h.recruited) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(Content.giftHint(d, h.affection), fontSize = 13.sp, color = Ink)
+                            Story.events.filter { it.heroId == d.id }.forEach { e ->
+                                val seen = e.id in h.seenEvents
+                                val open = h.affection >= e.reqAff
+                                Text((if (seen) "✦ " else if (open) "○ " else "· ") + (e.title ?: e.id) + if (!open) "  (at ${e.reqAff})" else if (!seen) "  — ready" else "",
+                                    fontSize = 12.sp, color = if (seen) Burgundy else Ink)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun TrophyScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_achievements")) {
+        Bg("guild", 0.4f)
+        Column {
+            TopBar(c, {}, "Achievements", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val n = c.state.achievements.size
+                Text("$n / ${Content.achievements.size} found", color = Gold, fontWeight = FontWeight.SemiBold)
+                Content.achievements.forEach { a ->
+                    val on = a.id in c.state.achievements
+                    Column(Modifier.fillMaxWidth().background(if (on) Cream else Cream.copy(alpha = 0.6f), Soft).padding(12.dp)) {
+                        Text(if (on) "✦  ${a.title}" else "·  ???", fontWeight = FontWeight.Bold, color = if (on) Burgundy else Wood)
+                        Text(if (on) a.desc else "Not yet.", fontSize = 13.sp, color = Ink)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun SummaryScreen(c: HeartboundController) {
+    val r = c.state.report
+    Box(Modifier.fillMaxSize().testTag("hb_summary")) {
+        Bg("guild", 0.35f, night = true)
+        Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.weight(1f))
+            Column(Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(22.dp)).background(Cream, RoundedCornerShape(22.dp)).padding(22.dp)) {
+                Text(if (r != null) "Day ${r.day} is over" else "The hall grows quiet", fontWeight = FontWeight.Black, fontSize = 24.sp, color = Ink)
+                Spacer(Modifier.height(10.dp))
+                if (r != null) {
+                    r.questTitle?.let { Text((if (r.questSuccess == true) "Quest complete: " else "Returned short: ") + it, color = Wood, fontSize = 14.sp) }
+                    Text(if (r.goldDelta >= 0) "🪙  +${r.goldDelta}" else "🪙  ${r.goldDelta}", fontWeight = FontWeight.SemiBold, color = Ink, modifier = Modifier.padding(top = 6.dp))
+                    r.aff.forEach { (id, d) ->
+                        val name = Heartbound.hero[id]?.name ?: id
+                        Text("$name  ${if (d >= 0) "+" else ""}$d affection", color = Burgundy, fontSize = 14.sp)
+                    }
+                    if (r.leveled.isNotEmpty()) Text("Level up: ${r.leveled.joinToString { Heartbound.hero.getValue(it).name }}", fontWeight = FontWeight.Bold, color = Ink)
+                    r.injured?.let { Text("${Heartbound.hero.getValue(it).name} is recovering.", color = Wood) }
+                    r.recruited.forEach { Text("${Heartbound.hero.getValue(it).name} joined the hall.", color = Burgundy, fontWeight = FontWeight.Bold) }
+                    r.newAchievements.forEach { id -> Content.achById[id]?.let { Text("✦  ${it.title}", color = Gold, fontWeight = FontWeight.Bold) } }
+                    if (r.aff.isEmpty() && r.questTitle == null && r.recruited.isEmpty()) Text("A quiet day. The kettle still sang.", color = Wood)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            HbButton("A new morning", { c.dismissSummary() }, Modifier.fillMaxWidth(), tag = "hb_next_day")
+        }
+    }
+}
+
+@Composable private fun LogScreen(c: HeartboundController) {
+    Box(Modifier.fillMaxSize().testTag("hb_log_screen")) {
+        Bg("guild", 0.5f, night = true)
+        Column {
+            TopBar(c, {}, "Dialogue log", back = { c.closeMenu() })
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (c.state.log.isEmpty()) Text("Nothing written yet.", color = Cream)
+                c.state.log.forEach { line ->
+                    Text(line, color = Cream, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().background(Night, Soft).padding(10.dp))
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
