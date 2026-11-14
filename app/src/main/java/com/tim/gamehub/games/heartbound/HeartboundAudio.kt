@@ -51,7 +51,9 @@ object HbSound {
 
     private fun level(n: Int, muted: Boolean) = if (muted) 0f else n.coerceIn(0, 10) / 10f
 
-    fun themeFor(screen: HbScreen, play: ScenePlay?): String {
+    fun themeFor(screen: HbScreen, play: ScenePlay?, started: Boolean = true): String {
+        if (screen == HbScreen.Title) return "title"
+        if (!started && screen != HbScreen.Battle) return "title"
         if (screen == HbScreen.Battle) return "battle"
         if (screen == HbScreen.Evening) return "evening"
         if (screen == HbScreen.Dialogue) {
@@ -64,9 +66,9 @@ object HbSound {
         return "hall"
     }
 
-    fun cue(settings: HbSettings, screen: HbScreen, play: ScenePlay?) {
+    fun cue(settings: HbSettings, screen: HbScreen, play: ScenePlay?, started: Boolean = true) {
         last = settings
-        start(themeFor(screen, play), settings)
+        start(themeFor(screen, play, started), settings)
     }
 
     fun start(theme: String, settings: HbSettings) {
@@ -88,6 +90,7 @@ object HbSound {
             "battle" -> R.raw.mus_battle
             "romance" -> R.raw.mus_romance
             "ending" -> R.raw.mus_ending
+            "title" -> R.raw.mus_title
             else -> R.raw.mus_hall
         }
         track = theme

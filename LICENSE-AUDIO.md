@@ -11,4 +11,5 @@ Tracks:
 - `mus_battle` — combat theme
 - `mus_romance` — confession, date, and visit theme
 - `mus_ending` — ending theme
+- `mus_title` — title and opening-animation theme
 - `sfx_tap`, `sfx_hit`, `sfx_heal`, `sfx_level`, `sfx_gift`, `sfx_ach` — interface and battle cues

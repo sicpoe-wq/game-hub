@@ -36,7 +36,7 @@ data class Player(
 }
 
 data class Achievement(val id: String, val title: String, val desc: String)
-data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true, val autoBattle: Boolean = false, val musicVol: Int = 8, val sfxVol: Int = 8, val muted: Boolean = false) {
+data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true, val autoBattle: Boolean = false, val musicVol: Int = 8, val sfxVol: Int = 8, val muted: Boolean = false, val playIntro: Boolean = true) {
     /** 0 = instant, 1 = fast, 2 = normal, 3 = slow */
     fun delayMs() = when (textSpeed) { 0 -> 0; 1 -> 8; 2 -> 16; else -> 28 }
     fun speedLabel() = when (textSpeed) { 0 -> "Instant"; 1 -> "Fast"; 2 -> "Normal"; else -> "Slow" }

@@ -45,14 +45,14 @@ import androidx.compose.ui.unit.sp
 import com.tim.gamehub.R
 import kotlinx.coroutines.delay
 
-private val Ink = Color(0xFF2A1F1A)
-private val Cream = Color(0xFFF7EFE3)
-private val Burgundy = Color(0xFF8B3A42)
-private val Gold = Color(0xFFD4B15A)
-private val Wood = Color(0xFF5C3D2E)
-private val Parchment = Color(0xFFF3E2C4)
-private val Night = Color(0xCC1A1214)
-private val Soft = RoundedCornerShape(16.dp)
+internal val Ink = Color(0xFF2A1F1A)
+internal val Cream = Color(0xFFF7EFE3)
+internal val Burgundy = Color(0xFF8B3A42)
+internal val Gold = Color(0xFFD4B15A)
+internal val Wood = Color(0xFF5C3D2E)
+internal val Parchment = Color(0xFFF3E2C4)
+internal val Night = Color(0xCC1A1214)
+internal val Soft = RoundedCornerShape(16.dp)
 
 @Composable
 fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null, instantText: Boolean = false) {
@@ -63,8 +63,8 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         if (!instant) HbSound.attach(ctx)
         onDispose { if (!instant) HbSound.detach() }
     }
-    LaunchedEffect(c.screen, c.play?.scene?.id, c.play?.kind, c.settings) {
-        if (!instant) HbSound.cue(c.settings, c.screen, c.play)
+    LaunchedEffect(c.screen, c.play?.scene?.id, c.play?.kind, c.settings, c.started) {
+        if (!instant) HbSound.cue(c.settings, c.screen, c.play, c.started)
     }
     BackHandler {
         if (c.cgView != null) { c.dismissCg(); return@BackHandler }
@@ -213,7 +213,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         modifier = Modifier.background(Cream.copy(alpha = 0.92f), RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 6.dp).testTag("hb_gold"))
 }
 
-@Composable private fun Pill(text: String, onClick: (() -> Unit)? = null, fill: Color = Cream, ink: Color = Ink, tag: String? = null) {
+@Composable internal fun Pill(text: String, onClick: (() -> Unit)? = null, fill: Color = Cream, ink: Color = Ink, tag: String? = null) {
     val m = Modifier.shadow(3.dp, RoundedCornerShape(20.dp)).background(fill, RoundedCornerShape(20.dp))
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
         .then(if (tag != null) Modifier.testTag(tag) else Modifier)
@@ -221,7 +221,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     Text(text, color = ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = m)
 }
 
-@Composable private fun HbButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fill: Color = Burgundy, enabled: Boolean = true, tag: String? = null) {
+@Composable internal fun HbButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fill: Color = Burgundy, enabled: Boolean = true, tag: String? = null) {
     val bg = if (enabled) fill else Color(0xFF6B5A58)
     Text(text, color = Cream, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center,
         modifier = modifier.shadow(5.dp, Soft).background(bg, Soft)
@@ -232,36 +232,6 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
 @Composable private fun Hearts(aff: Int, size: Int = 14) {
     val t = Heartbound.tier(aff)
     Text((0 until 4).joinToString("") { if (it < t.hearts) "❤" else "♡" }, fontSize = size.sp, color = Color(0xFFE1546A))
-}
-
-@Composable private fun TitleScreen(c: HeartboundController, onExit: () -> Unit) {
-    Box(Modifier.fillMaxSize().testTag("hb_title")) {
-        Bg("guild", 0.35f)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xAA140C0A), Color.Transparent, Color(0xCC140C0A)))))
-        Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.weight(1f))
-            Text("HEARTBOUND", color = Gold, fontSize = 40.sp, fontWeight = FontWeight.Black, letterSpacing = 6.sp)
-            Spacer(Modifier.height(8.dp))
-            Text("Lead a guild. Win their hearts.", color = Cream.copy(alpha = 0.9f), fontSize = 16.sp)
-            Spacer(Modifier.height(6.dp))
-            Text("The hall at Lumenreach is yours now.", color = Cream.copy(alpha = 0.7f), fontSize = 13.sp)
-            Spacer(Modifier.weight(1f))
-            if (c.hasSave) {
-                HbButton("Continue", { c.loadSave() }, Modifier.fillMaxWidth(), Gold, tag = "hb_continue")
-                Spacer(Modifier.height(10.dp))
-            }
-            HbButton(if (c.hasSave) "New Game" else "Begin", { c.openSlots("new") }, Modifier.fillMaxWidth(), tag = "hb_new")
-            Spacer(Modifier.height(10.dp))
-            if (c.hasSave) {
-                HbButton("Load", { c.openSlots("load") }, Modifier.fillMaxWidth(), Wood, tag = "hb_load")
-                Spacer(Modifier.height(10.dp))
-            }
-            Pill("Settings", onClick = { c.openSettings() }, tag = "hb_settings")
-            Spacer(Modifier.height(10.dp))
-            Pill("‹  Back to Hub", onClick = onExit, tag = "hb_hub")
-            Spacer(Modifier.height(12.dp))
-        }
-    }
 }
 
 @Composable private fun TopBar(c: HeartboundController, onExit: () -> Unit, title: String, back: () -> Unit = { c.goHome() }) {
@@ -869,6 +839,15 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                 Column {
                     Text("Mute audio", color = Cream, fontWeight = FontWeight.Bold)
                     Text("Silence music and sound effects.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.setPlayIntro(!c.settings.playIntro) }.testTag("hb_play_intro")) {
+                Text(if (c.settings.playIntro) "●" else "○", color = Gold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Play intro", color = Cream, fontWeight = FontWeight.Bold)
+                    Text("The opening animation plays once each time you open Heartbound from the hub. Turn this off to go straight to the title menu.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
                 }
             }
             VolumeRow("Music volume", c.settings.musicVol, "hb_music_vol") { c.setMusicVol(it) }

@@ -123,4 +123,22 @@ class ScreensTest {
         openGallery()
     }
 
+
+    private fun hbTitle(build: HeartboundController.() -> Unit) = p.snapshot {
+        HbSession.reset()
+        val base = HeartboundLogic.newGame().copy(
+            gold = 160, day = 8, player = Player(name = "Alex"),
+            gallery = setOf("kael_confess", "mira_confess", "plot_letter", "ending_hall"),
+        )
+        val store = MemorySave(HeartboundSave.encode(base))
+        val c = HeartboundController(store, instantText = true).apply {
+            jumpTitleMenu()
+            build()
+        }
+        HeartboundGame({}, controller = c, instantText = true)
+    }
+    @Test fun heartbound_intro_mid() = hbTitle { jumpIntro(4800) }
+    @Test fun heartbound_intro_logo() = hbTitle { jumpIntro(7000) }
+    @Test fun heartbound_title() = hbTitle { jumpTitleMenu() }
+
 }

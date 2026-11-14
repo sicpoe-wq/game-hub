@@ -699,4 +699,57 @@ T|kael_t1
     }
 
 
+    @Test fun introPlaysOncePerLaunchAndRespectsSetting() {
+        HbSession.reset()
+        val store = MemorySave()
+        val c = HeartboundController(store, instantText = true)
+        assertTrue(c.shouldPlayIntro())
+        c.beginIntroIfNeeded()
+        assertEquals("play", c.introMode)
+        c.skipIntro()
+        assertEquals("done", c.introMode)
+        assertFalse(c.shouldPlayIntro())
+        // a second entry this launch skips
+        c.introMode = "unset"
+        c.beginIntroIfNeeded()
+        assertEquals("done", c.introMode)
+        HbSession.reset()
+        c.setPlayIntro(false)
+        c.introMode = "unset"
+        assertFalse(c.shouldPlayIntro())
+        c.beginIntroIfNeeded()
+        assertEquals("done", c.introMode)
+        assertTrue(store.settings.playIntro.not())
+        assertEquals("title", HbSound.themeFor(HbScreen.Title, null, started = false))
+        assertEquals("title", HbSound.themeFor(HbScreen.Settings, null, started = false))
+        assertEquals("hall", HbSound.themeFor(HbScreen.Home, null, started = true))
+    }
+
+    @Test fun continueUsesLatestSlotAndTitleGalleryDoesNotStart() {
+        val store = MemorySave()
+        val early = HeartboundLogic.newGame().copy(day = 3, player = Player(name = "Early"), gallery = setOf("kael_confess"))
+        val later = HeartboundLogic.newGame().copy(day = 11, player = Player(name = "Later"), gallery = setOf("mira_confess", "plot_letter"))
+        store.writeSlot(0, HeartboundSave.encode(early))
+        store.writeSlot(1, HeartboundSave.encode(later))
+        store.lastSlot = 1
+        val c = HeartboundController(store, instantText = true)
+        c.jumpTitleMenu()
+        assertEquals(1, c.latestSlotIndex())
+        assertTrue(c.loadSave())
+        assertEquals("Later", c.state.player.name)
+        assertEquals(11, c.state.day)
+        c.backToTitle()
+        assertEquals(HbScreen.Title, c.screen)
+        assertFalse(c.shouldPlayIntro())
+        assertEquals("done", c.introMode)
+        c.openGalleryFromTitle()
+        assertEquals(HbScreen.Gallery, c.screen)
+        assertTrue("mira_confess" in c.state.gallery)
+        assertTrue("plot_letter" in c.state.gallery)
+        // viewing the gallery from the title must not mark a run as started
+        c.closeMenu()
+        assertEquals(HbScreen.Title, c.screen)
+    }
+
+
 }

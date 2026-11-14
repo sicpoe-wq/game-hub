@@ -5,7 +5,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlin.random.Random
 
+object HbSession {
+    var introPlayed: Boolean = false
+    fun reset() { introPlayed = false }
+}
+
+object IntroTiming {
+    const val DURATION = 9000
+    const val TOWN = 700
+    const val HALL = 2000
+    const val LANTERNS = 1400
+    const val HEROES = 3400
+    const val LOGO = 5600
+}
+
 sealed class HbScreen {
+
     data object Title : HbScreen()
     data object Home : HbScreen()
     data object Board : HbScreen()
@@ -74,6 +89,9 @@ class HeartboundController(
     var lastFocus by mutableStateOf<String?>(null)
     var battle by mutableStateOf<BattleState?>(null)
     var cgView by mutableStateOf<String?>(null)
+    var introMode by mutableStateOf("unset") // unset | play | done
+    var introFreezeMs by mutableStateOf<Int?>(null)
+
 
     val hasSave get() = (0 until store.slotCount).any { store.slot(it) != null }
 
@@ -94,7 +112,7 @@ class HeartboundController(
         }
     }
 
-    fun loadSave(): Boolean = loadSlot(store.lastSlot)
+    fun loadSave(): Boolean = latestSlotIndex()?.let { loadSlot(it) } ?: false
 
     fun loadSlot(i: Int): Boolean {
         val raw = store.slot(i) ?: return false
@@ -137,7 +155,45 @@ class HeartboundController(
     fun setMusicVol(n: Int) { settings = settings.copy(musicVol = n.coerceIn(0, 10)); store.settings = settings }
     fun setSfxVol(n: Int) { settings = settings.copy(sfxVol = n.coerceIn(0, 10)); store.settings = settings }
     fun setMuted(v: Boolean) { settings = settings.copy(muted = v); store.settings = settings }
+    fun setPlayIntro(v: Boolean) { settings = settings.copy(playIntro = v); store.settings = settings }
     fun openGallery() { returnTo = screen; screen = HbScreen.Gallery }
+    fun latestSlotIndex(): Int? {
+        val occupied = (0 until store.slotCount).filter { store.slot(it) != null }
+        if (occupied.isEmpty()) return null
+        if (store.lastSlot in occupied) return store.lastSlot
+        return occupied.maxByOrNull { i -> HeartboundSave.preview(store.slot(i))?.day ?: -1 }
+    }
+    fun openGalleryFromTitle() {
+        latestSlotIndex()?.let { i ->
+            val raw = store.slot(i) ?: return@let
+            try { state = HeartboundSave.decode(raw) } catch (_: Exception) {}
+        }
+        returnTo = HbScreen.Title
+        screen = HbScreen.Gallery
+    }
+    fun beginIntroIfNeeded() {
+        if (introMode != "unset") return
+        introMode = if (settings.playIntro && !HbSession.introPlayed) "play" else "done"
+        if (introMode == "done") HbSession.introPlayed = true
+    }
+    fun skipIntro() {
+        introMode = "done"
+        introFreezeMs = null
+        HbSession.introPlayed = true
+    }
+    fun jumpIntro(ms: Int) {
+        introMode = "play"
+        introFreezeMs = ms.coerceAtLeast(0)
+        screen = HbScreen.Title
+        started = false
+    }
+    fun jumpTitleMenu() {
+        introMode = "done"
+        introFreezeMs = null
+        HbSession.introPlayed = true
+        screen = HbScreen.Title
+    }
+    fun shouldPlayIntro(): Boolean = settings.playIntro && !HbSession.introPlayed && introMode != "done"
     fun openCg(id: String) { if (id in state.gallery) cgView = id }
     fun dismissCg() { cgView = null }
     fun offerCg(show: Boolean = true) {
@@ -171,6 +227,7 @@ class HeartboundController(
     }
 
     fun backToTitle() {
+        skipIntro()
         screen = HbScreen.Title
         play = null
     }

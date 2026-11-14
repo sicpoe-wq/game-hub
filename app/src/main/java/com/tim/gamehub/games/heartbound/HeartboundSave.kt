@@ -51,9 +51,9 @@ class PrefsSave(ctx: android.content.Context) : SaveStore {
     override var settings: HbSettings
         get() = HbSettings(
             p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true), p.getBoolean("auto_battle", false),
-            p.getInt("music_vol", 8), p.getInt("sfx_vol", 8), p.getBoolean("muted", false),
+            p.getInt("music_vol", 8), p.getInt("sfx_vol", 8), p.getBoolean("muted", false), p.getBoolean("play_intro", true),
         )
-        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).putBoolean("auto_battle", v.autoBattle).putInt("music_vol", v.musicVol).putInt("sfx_vol", v.sfxVol).putBoolean("muted", v.muted).apply() }
+        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).putBoolean("auto_battle", v.autoBattle).putInt("music_vol", v.musicVol).putInt("sfx_vol", v.sfxVol).putBoolean("muted", v.muted).putBoolean("play_intro", v.playIntro).apply() }
     override var seenLines: Set<String>
         get() = p.getString("seen_lines", "")!!.split(",").filter { it.isNotBlank() }.toSet()
         set(v) { p.edit().putString("seen_lines", v.joinToString(",")).apply() }

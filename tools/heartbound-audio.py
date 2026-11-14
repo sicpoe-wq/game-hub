@@ -367,6 +367,44 @@ def ending(mix, bpm):
         t += q
         i += 1
 
+# ---------- TITLE: slow hopeful swell (G major) ----------
+def title(mix, bpm):
+    chords = [
+        [43, 47, 50, 55],  # G
+        [40, 43, 47, 50],  # Em
+        [36, 40, 43, 47],  # C
+        [38, 42, 45, 50],  # D
+        [43, 47, 50, 55],
+        [45, 48, 52, 55],  # Am
+        [40, 43, 47, 50],
+        [38, 42, 45, 50],
+    ]
+    bar = beat_samples(bpm, 4)
+    melody = [67, 71, 74, 79, 76, 74, 71, 67, 64, 66, 67, 71, 69, 67, 66, 62]
+    t = 0
+    p = 0
+    while t < len(mix) - bar:
+        ch = chords[p % len(chords)]
+        swell = 0.12 + 0.14 * min(1.0, t / (SR * 8.0))  # bloom toward the logo
+        for m in ch:
+            place(mix, t, pad_tone(midi(m), bar, rich=0.3 + 0.2 * swell), 0.16 + swell)
+        place(mix, t, bass(midi(ch[0]), bar), 0.32 + 0.2 * swell)
+        arp = [ch[0]+12, ch[1]+12, ch[2]+12, ch[3]+12, ch[2]+12, ch[1]+12]
+        step = bar // 6
+        for i, m in enumerate(arp):
+            place(mix, t + i*step, harp(midi(m), int(step*2.4)), 0.42)
+        if p % 2 == 0:
+            place(mix, t, kick(int(0.22*SR)), 0.12)
+        p += 1
+        t += bar
+    t = beat_samples(bpm, 4)  # melody enters after a bar
+    i = 0
+    half = beat_samples(bpm, 2)
+    while t < len(mix) - half:
+        place(mix, t, flute(midi(melody[i % len(melody)]), int(half*1.2)), 0.40)
+        t += half
+        i += 1
+
 # ---------- SFX ----------
 def sfx_tap():
     n = int(0.06*SR)
@@ -449,6 +487,7 @@ def main():
         "mus_battle": (22, 132, battle),
         "mus_romance": (28, 68, romance),
         "mus_ending": (28, 88, ending),
+        "mus_title": (28, 70, title),
     }
     for name, (sec, bpm, fn) in tracks.items():
         print("render", name)
