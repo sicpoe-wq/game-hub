@@ -36,7 +36,7 @@ data class Player(
 }
 
 data class Achievement(val id: String, val title: String, val desc: String)
-data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true) {
+data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true, val autoBattle: Boolean = false) {
     /** 0 = instant, 1 = fast, 2 = normal, 3 = slow */
     fun delayMs() = when (textSpeed) { 0 -> 0; 1 -> 8; 2 -> 16; else -> 28 }
     fun speedLabel() = when (textSpeed) { 0 -> "Instant"; 1 -> "Fast"; 2 -> "Normal"; else -> "Slow" }
@@ -101,6 +101,13 @@ object Content {
         Achievement("harvest_dance", "The Harvest Dance", "Share the harvest dance."),
         Achievement("a_light_kept", "A Light Kept", "Finish the first chapter of Lumenreach's story."),
         Achievement("bedside", "Bedside", "Sit with an injured hero."),
+        Achievement("first_field", "Into the Field", "Finish a fight, win or lose."),
+        Achievement("known", "A Name that Travels", "Reach 15 reputation."),
+        Achievement("renowned", "A Name the Roads Know", "Reach 40 reputation."),
+        Achievement("iron_answered", "Iron Answered", "Turn Iron Vesper aside."),
+        Achievement("coin_crown", "The Coin Crown Falls", "Defeat the goblin king."),
+        Achievement("envoy_met", "When the Lanterns Fade", "Face the Covenant envoy."),
+        Achievement("bond_strike", "A Bond Made Steel", "Unleash a bond combo in battle."),
     )
     val achById = achievements.associateBy { it.id }
 
@@ -171,6 +178,13 @@ object Ach {
         if ("event_harvest" in s.flags) add("harvest_dance")
         if ("plot_ch1_done" in s.flags || s.world.chapter >= 1) add("a_light_kept")
         if (s.flags.any { it.startsWith("cared_") }) add("bedside")
+        if (s.flags.any { it.startsWith("won_") && it != "won_quest" } || s.lastResult != null) add("first_field")
+        if (s.reputation >= 15) add("known")
+        if (s.reputation >= 40) add("renowned")
+        if ("beat_vesper" in s.flags || "vesper_met" in s.flags || "vesper_humbled" in s.flags) add("iron_answered")
+        if ("king_fallen" in s.flags) add("coin_crown")
+        if ("envoy_met" in s.flags) add("envoy_met")
+        if ("used_combo" in s.flags) add("bond_strike")
         return have
     }
 }

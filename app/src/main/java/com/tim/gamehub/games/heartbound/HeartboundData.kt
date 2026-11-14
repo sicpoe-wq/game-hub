@@ -50,6 +50,14 @@ data class QuestDef(
     val minDay: Int,
     val risk: Int,              // extra injury chance on a close roll
     val loot: String? = null,
+    val days: Int = 1,
+    val minRep: Int = 0,
+    val boss: Boolean = false,
+    val needFlag: String? = null,
+    val once: Boolean = false,
+    val rival: Boolean = false,
+    val enemies: List<String> = emptyList(),
+    val chain: String? = null,
 )
 data class UpgradeDef(val id: String, val name: String, val icon: String, val levels: List<Pair<Int, String>>)
 
@@ -129,8 +137,8 @@ object Heartbound {
         QuestDef("cat", "The Mayor's Cat", "A very dignified cat has taken a very undignified interest in the clock tower.", "town", 12, 1, 2, 35, 25, setOf(HeroClass.ROGUE, HeroClass.RANGER), 1, 8),
         QuestDef("herbs", "Herb Run", "Feverfew and river mint along the old forest path. Watch the roots.", "forest", 12, 1, 2, 35, 25, setOf(HeroClass.CLERIC, HeroClass.RANGER), 1, 10, "herbs"),
         QuestDef("escort", "Merchant Escort", "A cloth merchant wants company as far as the east gate. Bandits have been bored lately.", "town", 20, 2, 2, 60, 40, setOf(HeroClass.KNIGHT, HeroClass.RANGER), 1, 16),
-        QuestDef("goblin", "Goblin Scarecrows", "Something is stealing grain and leaving rude little hats on the fence posts.", "forest", 20, 2, 3, 65, 45, setOf(HeroClass.MAGE, HeroClass.ROGUE), 2, 18),
-        QuestDef("ledger", "The Missing Ledger", "The town clerk swears the accounts walked off on their own. Someone should ask the accounts.", "town", 22, 1, 2, 70, 45, setOf(HeroClass.MAGE, HeroClass.ROGUE), 2, 12, "book"),
+        QuestDef("goblin", "Goblin Scarecrows", "Something is stealing grain and leaving rude little hats on the fence posts.", "forest", 20, 2, 3, 65, 45, setOf(HeroClass.MAGE, HeroClass.ROGUE), 2, 18, chain = "goblin_routed"),
+        QuestDef("ledger", "The Missing Ledger", "The town clerk swears the accounts walked off on their own. Someone should ask the accounts.", "town", 22, 1, 2, 70, 45, setOf(HeroClass.MAGE, HeroClass.ROGUE), 2, 12, "book", chain = "ledger_found"),
         QuestDef("wolves", "Wolf Pack", "A hungry pack has come down from the ridge. They need turning, not a slaughter if it can be helped.", "forest", 32, 2, 3, 100, 70, setOf(HeroClass.RANGER, HeroClass.KNIGHT), 3, 24),
         QuestDef("watch", "Night Watch", "The south wall is short a lantern-bearer for two nights. Pay is honest. Sleep is not.", "town", 24, 2, 2, 75, 50, setOf(HeroClass.KNIGHT, HeroClass.CLERIC), 3, 14),
         QuestDef("chapel", "Ruined Chapel", "Travelers heard singing in a chapel that has been empty for years. Yuna would like that looked into.", "forest", 34, 2, 3, 110, 80, setOf(HeroClass.CLERIC, HeroClass.MAGE), 4, 22),
@@ -138,6 +146,15 @@ object Heartbound {
         QuestDef("bandits", "Bandit Camp", "A camp in the deep trees has been taking more than tithes. This will not be tidy.", "forest", 45, 3, 3, 160, 110, setOf(HeroClass.KNIGHT, HeroClass.RANGER, HeroClass.ROGUE), 5, 28),
         QuestDef("festival", "Festival Hands", "Lumenreach is hanging lanterns and is short on hands, ladders, and patience.", "town", 16, 1, 3, 50, 35, setOf(HeroClass.CLERIC, HeroClass.ROGUE), 6, 8, "candy"),
         QuestDef("shadow", "A Shadow in the Woods", "Whatever burned Sera's forest may have grown a new name. Go carefully. Come home.", "forest", 50, 3, 3, 200, 140, setOf(HeroClass.RANGER, HeroClass.MAGE, HeroClass.CLERIC), 8, 32),
+
+        QuestDef("goblin_den", "The Grain Den", "The scarecrows led back to a den packed with stolen grain and worse manners. A two-day push through the woods.", "forest", 28, 2, 3, 90, 65, setOf(HeroClass.MAGE, HeroClass.ROGUE), 4, 20, days = 2, needFlag = "goblin_routed", once = true, enemies = listOf("goblin", "goblin"), chain = "den_cleared"),
+        QuestDef("goblin_king", "The Coin Crown", "The den's master has crowned himself with bent coins. End the reign.", "forest", 48, 2, 3, 180, 130, setOf(HeroClass.KNIGHT, HeroClass.MAGE, HeroClass.ROGUE), 6, 28, days = 2, minRep = 12, boss = true, needFlag = "den_cleared", once = true, enemies = listOf("goblin", "goblin_king"), chain = "king_fallen"),
+        QuestDef("ledger_mercy", "A Name Forgotten", "You promised the clerk the thief could start over. Now someone has to make that true.", "town", 24, 1, 2, 80, 55, setOf(HeroClass.ROGUE, HeroClass.CLERIC), 3, 12, needFlag = "ledger_mercy", once = true, enemies = listOf("bandit"), chain = "mercy_kept"),
+        QuestDef("ledger_law", "The Counting-House Warrant", "The law asks you to finish what the missing ledger started.", "town", 26, 1, 2, 85, 55, setOf(HeroClass.KNIGHT, HeroClass.ROGUE), 3, 14, needFlag = "ledger_law", once = true, enemies = listOf("bandit", "bandit"), chain = "law_kept"),
+        QuestDef("vesper_contract", "Contested Contract", "Iron Vesper posted the same job on the east gate. They will not step aside politely.", "town", 28, 2, 2, 90, 60, setOf(HeroClass.KNIGHT, HeroClass.ROGUE), 3, 18, rival = true, enemies = listOf("vesper"), chain = "vesper_met"),
+        QuestDef("vesper_duel", "A Duel at Dusk", "A duelist of Iron Vesper has called the hall out by name. This one will be remembered.", "town", 50, 2, 3, 200, 140, setOf(HeroClass.KNIGHT, HeroClass.RANGER), 6, 26, days = 2, minRep = 15, boss = true, rival = true, needFlag = "vesper_met", once = true, enemies = listOf("vesper"), chain = "vesper_humbled"),
+        QuestDef("ridge_hunt", "The Ridge Hunt", "A second pack has come down the ridge, hungrier than the first. The town will notice who answers.", "forest", 40, 2, 3, 140, 95, setOf(HeroClass.RANGER, HeroClass.KNIGHT), 5, 24, days = 2, minRep = 10, enemies = listOf("wolf", "wolf")),
+        QuestDef("covenant_envoy", "The Envoy Returns", "The visitor who promised to return when the lanterns fade has kept that promise. Meet them on the old road.", "forest", 55, 3, 3, 240, 180, setOf(HeroClass.CLERIC, HeroClass.MAGE, HeroClass.KNIGHT), 8, 32, days = 2, minRep = 20, boss = true, needFlag = "plot_ch1_done", once = true, enemies = listOf("shade", "covenant"), chain = "envoy_met"),
     )
     val quest: Map<String, QuestDef> = quests.associateBy { it.id }
 

@@ -28,6 +28,15 @@ data class HeroState(
     fun tier() = Heartbound.tier(aff())
 }
 
+data class Expedition(
+    val questId: String,
+    val party: List<String>,
+    val daysLeft: Int,
+    val totalDays: Int,
+    val eventsDone: Int = 0,
+    val flags: Set<String> = emptySet(),
+)
+
 data class GameState(
     val day: Int = 1,
     val gold: Int = Heartbound.START_GOLD,
@@ -49,10 +58,14 @@ data class GameState(
     val lovedGifts: Set<String> = emptySet(),
     val world: WorldState = WorldState(),
     val anchor: DayAnchor? = null,
+    val reputation: Int = 0,
+    val expedition: Expedition? = null,
 ) {
     fun h(id: String) = heroes.getValue(id)
     fun recruited() = Heartbound.heroes.map { h(it.id) }.filter { it.recruited }
     fun ready() = recruited().filter { it.ready }
+    fun onRoad(id: String) = expedition?.party?.contains(id) == true
+    fun hallReady() = ready().filter { !onRoad(it.id) }
     fun inv(id: String) = inventory[id] ?: 0
     fun has(flag: String) = flag in flags
     fun eveningCap() = if (tavern > 0) 2 else 1
@@ -172,29 +185,111 @@ object HeartboundLogic {
             if (loot != null) append(" Found: ${Heartbound.gift[loot]?.name ?: Heartbound.gearById[loot]?.name ?: loot}.")
         }
         val result = QuestResult(quest.id, success, chance, roll, gold, xp, leveled, injured, days, loot, note)
-        val next = state.copy(
-            gold = state.gold + gold,
-            heroes = heroes,
-            inventory = inv,
-            flags = state.flags + "quest_${quest.id}" + (if (quest.place == "forest") "did_forest" else "did_town") + (if (success) "won_quest" else "lost_quest"),
-            lastResult = result,
-            phase = "evening",
-            actionsLeft = state.eveningCap(),
-        )
-        return next to result
+        return applyRewards(state, party, quest, result, heroes, inv, gold, success) to result
     }
 
     fun turnIn(state: GameState): GameState {
         val heroes = state.heroes.mapValues { (_, h) ->
             if (h.injuredDays > 0) h.copy(injuredDays = (h.injuredDays - 1 - if (state.rooms >= 2 && h.injuredDays > 1) 1 else 0).coerceAtLeast(0)) else h
         }
+        val exp = state.expedition?.let { if (it.daysLeft > 0) it.copy(daysLeft = it.daysLeft - 1) else it }
         return state.copy(
             day = state.day + 1,
             phase = "morning",
             actionsLeft = 0,
             heroes = heroes,
             lastResult = null,
+            expedition = exp,
         )
+    }
+
+
+    fun availableQuests(state: GameState) = Heartbound.quests.filter { q ->
+        q.minDay <= state.day &&
+            q.minRep <= state.reputation &&
+            (q.needFlag == null || state.has(q.needFlag)) &&
+            (!q.once || "won_${q.id}" !in state.flags)
+    }
+
+    fun repGain(quest: QuestDef, success: Boolean): Int {
+        if (!success) return 0
+        return when {
+            quest.boss && quest.rival -> 10
+            quest.boss -> 8
+            quest.rival -> 5
+            else -> 3
+        }
+    }
+
+    fun applyRewards(
+        state: GameState,
+        party: List<String>,
+        quest: QuestDef,
+        result: QuestResult,
+        heroes: Map<String, HeroState>,
+        inv: Map<String, Int>,
+        gold: Int,
+        success: Boolean,
+    ): GameState {
+        var flags = state.flags + "quest_${quest.id}" + (if (quest.place == "forest") "did_forest" else "did_town") + (if (success) "won_quest" else "lost_quest")
+        if (success) {
+            flags = flags + "won_${quest.id}"
+            if (quest.chain != null) flags = flags + quest.chain
+            if (quest.rival) flags = flags + "beat_vesper"
+        }
+        return state.copy(
+            gold = state.gold + gold,
+            heroes = heroes,
+            inventory = inv,
+            flags = flags,
+            lastResult = result,
+            phase = "evening",
+            actionsLeft = state.eveningCap(),
+            reputation = state.reputation + repGain(quest, success),
+            expedition = null,
+        )
+    }
+
+    fun settleBattle(state: GameState, battle: BattleState): Pair<GameState, QuestResult> {
+        val quest = Heartbound.quest.getValue(battle.questId)
+        val party = battle.party
+        val success = battle.victory == true
+        val chance = successChance(state, party, quest)
+        val ko = battle.fighters.filter { it.isHero && it.hp <= 0 }.mapNotNull { it.heroId }
+        val injured = ko.firstOrNull()
+        var days = 0
+        if (injured != null) {
+            days = (if (success) 1 else 2) - (state.rooms + 1) / 2
+            if (days < 1) days = 1
+            if (state.rooms >= 3) days = 1
+        }
+        val gold = if (success) quest.gold else quest.gold / 5
+        val xp = if (success) quest.xp else quest.xp / 4
+        val remain = battle.fighters.filter { !it.isHero }.sumOf { it.hp }
+        val loot = if (success && quest.loot != null && (remain + battle.round) % 3 == 0) quest.loot else null
+        val leveled = mutableListOf<String>()
+        var heroes = state.heroes
+        party.forEach { id ->
+            var h = heroes.getValue(id)
+            val (next, up) = addXp(h, xp)
+            h = next
+            if (up) leveled += id
+            if (id == injured) h = h.copy(injuredDays = days)
+            val bond = if (success) 2 else 1
+            h = h.copy(affection = (h.affection + bond).coerceIn(0, Heartbound.MAX_AFF))
+            heroes = heroes + (id to h)
+        }
+        var inv = state.inventory
+        if (loot != null) inv = inv + (loot to (inv[loot] ?: 0) + 1)
+        val note = buildString {
+            append(if (success) "The party returns with the job done." else "The party returns empty-handed, but together.")
+            if (injured != null) append(" ${Heartbound.hero.getValue(injured).name} was hurt and needs $days day${if (days == 1) "" else "s"} to recover.")
+            if (loot != null) append(" Found: ${Heartbound.gift[loot]?.name ?: Heartbound.gearById[loot]?.name ?: loot}.")
+            val rg = repGain(quest, success)
+            if (rg > 0) append(" The hall's name travels a little farther (+$rg reputation).")
+        }
+        val result = QuestResult(quest.id, success, chance, if (success) 0 else 99, gold, xp, leveled, injured, days, loot, note)
+        return applyRewards(state, party, quest, result, heroes, inv, gold, success) to result
     }
 
     fun addAff(h: HeroState, delta: Int) = h.copy(affection = (h.affection + delta).coerceIn(0, Heartbound.MAX_AFF))

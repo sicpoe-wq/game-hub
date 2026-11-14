@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -58,6 +59,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log -> c.closeMenu()
             HbScreen.CompanionPick -> c.goHome()
             HbScreen.Summary -> c.dismissSummary()
+            HbScreen.Battle -> { /* stay in the fight; use Retreat */ }
             else -> c.goHome()
         }
     }
@@ -82,6 +84,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Summary -> SummaryScreen(c)
             HbScreen.Log -> LogScreen(c)
             HbScreen.CompanionPick -> CompanionPickScreen(c)
+            HbScreen.Battle -> BattleScreen(c)
         }
         c.toast?.let { msg ->
             LaunchedEffect(msg) { delay(1800); c.toast = null }
@@ -144,6 +147,21 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         else -> R.drawable.portrait_kael
     }
     Image(painterResource(res), Heartbound.hero[id]?.name ?: id, modifier, contentScale = scale)
+}
+
+@Composable private fun EnemyArt(art: String, modifier: Modifier = Modifier) {
+    val res = when (art) {
+        "enemy_goblin", "goblin" -> R.drawable.enemy_goblin
+        "enemy_wolf", "wolf" -> R.drawable.enemy_wolf
+        "enemy_bandit", "bandit" -> R.drawable.enemy_bandit
+        "enemy_shade", "shade" -> R.drawable.enemy_shade
+        "enemy_vesper", "vesper" -> R.drawable.enemy_vesper
+        "enemy_goblin_king", "goblin_king" -> R.drawable.enemy_goblin_king
+        "enemy_covenant", "covenant" -> R.drawable.enemy_covenant
+        "enemy_cat", "cat" -> R.drawable.enemy_cat
+        else -> R.drawable.enemy_goblin
+    }
+    Image(painterResource(res), art, modifier, contentScale = ContentScale.Crop)
 }
 
 @Composable private fun GoldChip(gold: Int) {
@@ -229,6 +247,20 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             }
             Text(greet, color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_greet"))
             if (routeName != null) Text("Promised to $routeName.", color = Gold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            if (st.reputation > 0) Text("Reputation  ${st.reputation}.", color = Gold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp).testTag("hb_rep"))
+            st.expedition?.let { ex ->
+                val q = Heartbound.quest[ex.questId]
+                val names = ex.party.joinToString { Heartbound.hero[it]?.name?.split(" ")?.first() ?: it }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().background(Cream.copy(alpha = 0.94f), Soft).padding(12.dp).testTag("hb_expedition")) {
+                    if (ex.daysLeft > 0) {
+                        Text("$names are on the road to ${q?.title ?: "the job"}.  ${ex.daysLeft} day${if (ex.daysLeft == 1) "" else "s"} left.", color = Ink, fontSize = 13.sp)
+                    } else {
+                        Text("$names have reached ${q?.title ?: "the job"}. The fight is waiting.", color = Ink, fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        HbButton("Join the fight", { c.joinFight() }, Modifier.fillMaxWidth(), tag = "hb_join_fight")
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 st.recruited().forEach { h ->
@@ -238,7 +270,10 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                         Portrait(h.id, Modifier.size(76.dp, 88.dp).clip(RoundedCornerShape(12.dp)), ContentScale.Crop)
                         Text(h.def.name.split(" ").first(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Ink, maxLines = 1)
                         Hearts(h.affection, 11)
-                        if (h.injuredDays > 0) Text("hurt ${h.injuredDays}d", fontSize = 10.sp, color = Burgundy)
+                        when {
+                            st.onRoad(h.id) -> Text("away", fontSize = 10.sp, color = Burgundy)
+                            h.injuredDays > 0 -> Text("hurt ${h.injuredDays}d", fontSize = 10.sp, color = Burgundy)
+                        }
                     }
                 }
             }
@@ -324,7 +359,11 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                         Text(q.desc, color = Ink.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(6.dp))
                         Text("${q.place.replaceFirstChar { it.uppercase() }}  ·  Party ${q.minParty}–${q.maxParty}  ·  🪙 ${q.gold}   XP ${q.xp}" +
-                            (if (q.preferred.isNotEmpty()) "  ·  Best: ${q.preferred.joinToString { it.title }}" else ""),
+                            (if (q.preferred.isNotEmpty()) "  ·  Best: ${q.preferred.joinToString { it.title }}" else "") +
+                            (if (q.days > 1) "  ·  ${q.days} days" else "") +
+                            (if (q.minRep > 0) "  ·  Rep ${q.minRep}" else "") +
+                            (if (q.boss) "  ·  Boss" else "") +
+                            (if (q.rival) "  ·  Iron Vesper" else ""),
                             fontSize = 11.sp, color = Wood, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -346,7 +385,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 c.state.recruited().forEach { h ->
                     val on = h.id in c.party
-                    val ok = h.ready
+                    val ok = h.ready && !c.state.onRoad(h.id)
                     Row(Modifier.fillMaxWidth().background(if (on) Gold.copy(alpha = 0.92f) else Cream.copy(alpha = 0.92f), Soft)
                         .clickable(enabled = ok) { c.toggleParty(h.id) }.padding(10.dp).testTag("hb_party_${h.id}"),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -354,7 +393,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text("${h.def.name}  ·  Lv ${h.level} ${h.def.cls.title}", fontWeight = FontWeight.Bold, color = Ink)
-                            Text("ATK ${h.atk()}   DEF ${h.defn()}" + if (h.injuredDays > 0) "   Resting ${h.injuredDays}d" else "", fontSize = 12.sp, color = Wood)
+                            Text("ATK ${h.atk()}   DEF ${h.defn()}" + when { c.state.onRoad(h.id) -> "   On the road"; h.injuredDays > 0 -> "   Resting ${h.injuredDays}d"; else -> "" }, fontSize = 12.sp, color = Wood)
                         }
                         if (h.def.cls in q.preferred) Text("suited", fontSize = 11.sp, color = Burgundy, fontWeight = FontWeight.Bold)
                     }
@@ -363,7 +402,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (chance != null) "Success chance  $chance%" else "Pick a valid party to see the odds.",
                     color = Cream, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.testTag("hb_chance").padding(bottom = 8.dp))
-                HbButton("Send party", { c.confirmQuest() }, Modifier.fillMaxWidth(), enabled = chance != null, tag = "hb_send")
+                HbButton(if (q.days >= 2) "Take the road" else "Join the fight", { c.confirmQuest() }, Modifier.fillMaxWidth(), enabled = chance != null, tag = "hb_send")
             }
         }
     }
@@ -734,6 +773,15 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Text("After certain moments the scene cuts away. Nothing explicit is shown or described. Turn this off to skip those cutaways.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.setAutoBattle(!c.settings.autoBattle) }.testTag("hb_auto_battle")) {
+                Text(if (c.settings.autoBattle) "●" else "○", color = Gold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Auto-battle", color = Cream, fontWeight = FontWeight.Bold)
+                    Text("Watch fights play themselves. Turn this off to choose every skill. You can also switch in the middle of a fight.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
             Spacer(Modifier.height(24.dp))
             Pill("‹  Back", onClick = { c.closeMenu() })
         }
@@ -883,5 +931,143 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             Spacer(Modifier.weight(1f))
             Pill("‹  Back", onClick = { c.goHome() })
         }
+    }
+}
+
+@Composable private fun BattleScreen(c: HeartboundController) {
+    val b = c.battle ?: return
+    val q = Heartbound.quest[b.questId]
+    val instant = c.instantText
+    var pending by remember { mutableStateOf<SkillDef?>(null) }
+    LaunchedEffect(b.anim, b.finished, b.auto, b.currentId) {
+        val cur = c.battle ?: return@LaunchedEffect
+        if (cur.finished) {
+            if (!instant) delay(700)
+            if (c.battle?.finished == true) c.finishBattle()
+            return@LaunchedEffect
+        }
+        val fighter = Battle.current(cur) ?: return@LaunchedEffect
+        val watch = cur.auto || !fighter.isHero
+        if (!watch) return@LaunchedEffect
+        if (!instant) delay(if (fighter.isHero) 420 else 520)
+        if (c.battle?.anim == cur.anim && c.battle?.finished != true) c.autoBattleStep()
+    }
+    Box(Modifier.fillMaxSize().testTag("hb_battle")) {
+        Bg(q?.place ?: "forest", 0.42f)
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Pill(if (b.auto) "Watching" else "Playing", onClick = { c.toggleBattleAuto() }, fill = if (b.auto) Gold else Cream, tag = "hb_battle_auto")
+                Spacer(Modifier.width(8.dp))
+                Text(q?.title ?: "Battle", color = Cream, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Pill("Retreat", onClick = { c.retreatBattle() }, tag = "hb_retreat")
+            }
+            val foes = b.fighters.filter { !it.isHero }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+                foes.forEach { f ->
+                    val canTarget = pending != null && pending!!.target in setOf("enemy", "allEnemies", "all") && f.hp > 0
+                    FighterCard(f, b, wide = foes.size == 1, onClick = {
+                        val sk = pending
+                        if (sk != null && f.hp > 0 && sk.target in setOf("enemy")) {
+                            c.playerAct(sk.id, f.id); pending = null
+                        }
+                    }, highlight = canTarget || f.id == b.currentId)
+                }
+            }
+            val last = b.log.lastOrNull().orEmpty()
+            Text(last, color = Cream, fontSize = 14.sp, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).background(Night, Soft).padding(horizontal = 12.dp, vertical = 8.dp).testTag("hb_battle_log"))
+            Spacer(Modifier.weight(1f))
+            val heroes = b.fighters.filter { it.isHero }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                heroes.forEach { f ->
+                    val canTarget = pending != null && pending!!.target in setOf("ally", "allAllies", "self", "all") && f.hp > 0
+                    FighterCard(f, b, wide = false, hero = true, onClick = {
+                        val sk = pending
+                        if (sk != null && f.hp > 0 && sk.target in setOf("ally", "self")) {
+                            c.playerAct(sk.id, f.id); pending = null
+                        }
+                    }, highlight = canTarget || f.id == b.currentId)
+                }
+            }
+            val actor = Battle.current(b)
+            val manual = actor != null && actor.isHero && !b.auto && !b.finished
+            if (manual) {
+                val skills = Battle.availableSkills(c.state, b)
+                Text(
+                    if (pending == null) "${actor!!.name}'s turn. Choose a skill."
+                    else if (pending!!.target in setOf("ally", "enemy")) "Choose a target for ${pending!!.name}."
+                    else pending!!.name,
+                    color = Gold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(12.dp, 4.dp, 12.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    skills.forEach { sk ->
+                        val fill = when {
+                            pending?.id == sk.id -> Gold
+                            sk.combo -> Color(0xFF7A4E8A)
+                            else -> Cream
+                        }
+                        val ink = if (sk.combo && pending?.id != sk.id) Cream else Ink
+                        Column(
+                            Modifier.width(96.dp).shadow(4.dp, Soft).background(fill, Soft)
+                                .clickable {
+                                    when (sk.target) {
+                                        "self", "allAllies", "allEnemies", "all" -> { c.playerAct(sk.id, actor?.id); pending = null }
+                                        else -> pending = if (pending?.id == sk.id) null else sk
+                                    }
+                                }
+                                .padding(8.dp)
+                                .testTag("hb_skill_${sk.id}"),
+                        ) {
+                            Text(sk.name, fontWeight = FontWeight.Bold, color = ink, fontSize = 13.sp, maxLines = 1)
+                            Text(sk.desc, color = ink.copy(alpha = 0.8f), fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (sk.combo) Text("BOND", color = if (pending?.id == sk.id) Burgundy else Gold, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            } else {
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun FighterCard(f: Fighter, b: BattleState, wide: Boolean, hero: Boolean = false, onClick: () -> Unit, highlight: Boolean) {
+    val hit = f.id == b.flashId && b.flashKind == "hit"
+    val heal = f.id == b.flashId && b.flashKind == "heal"
+    val guard = f.id == b.flashId && b.flashKind == "guard"
+    val pulse = animateFloatAsState(if (hit) 1f else if (heal || guard) 0.6f else 0f, label = "flash")
+    val frac = animateFloatAsState((f.hp.toFloat() / f.maxHp.coerceAtLeast(1)).coerceIn(0f, 1f), label = "hp")
+    val size = if (wide) 132.dp else if (hero) 78.dp else 100.dp
+    val dead = f.hp <= 0
+    Column(
+        Modifier.width(if (wide) 168.dp else if (hero) 100.dp else 124.dp)
+            .graphicsLayer {
+                translationX = if (hit) pulse.value * 10f else 0f
+                scaleX = if (heal) 1f + pulse.value * 0.06f else 1f
+                scaleY = if (heal) 1f + pulse.value * 0.06f else 1f
+                alpha = if (dead) 0.45f else 1f
+            }
+            .then(if (highlight) Modifier.border(2.dp, Gold, Soft) else Modifier)
+            .clickable(enabled = !dead, onClick = onClick)
+            .testTag("hb_fighter_${f.id}"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box {
+            val portraitMod = Modifier.size(size, if (hero) 86.dp else size).clip(RoundedCornerShape(if (hero) 48.dp else 14.dp))
+            if (hero && f.heroId != null) Portrait(f.heroId, portraitMod, ContentScale.Crop)
+            else EnemyArt(f.art ?: f.enemyId ?: "goblin", portraitMod)
+            if (hit) Box(Modifier.matchParentSize().clip(RoundedCornerShape(14.dp)).background(Color(0x66C43B3B)))
+            if (heal) Box(Modifier.matchParentSize().clip(RoundedCornerShape(14.dp)).background(Color(0x5530A056)))
+            if (f.defending) Text("🛡", fontSize = 14.sp, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
+        }
+        Text(f.name, color = Cream, fontWeight = FontWeight.Bold, fontSize = if (hero) 11.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        LinearProgressIndicator(progress = { frac.value }, color = when {
+            frac.value < 0.3f -> Burgundy
+            heal -> Color(0xFF3A9A58)
+            else -> Color(0xFF2E6B3A)
+        }, trackColor = Color(0xAA2A1F1A), gapSize = 0.dp, drawStopIndicator = {},
+            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).testTag("hb_hp_${f.id}"))
+        Text("${f.hp}/${f.maxHp}", color = Cream.copy(alpha = 0.85f), fontSize = 10.sp)
     }
 }

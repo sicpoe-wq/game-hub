@@ -49,8 +49,8 @@ class PrefsSave(ctx: android.content.Context) : SaveStore {
         ed.apply()
     }
     override var settings: HbSettings
-        get() = HbSettings(p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true))
-        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).apply() }
+        get() = HbSettings(p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true), p.getBoolean("auto_battle", false))
+        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).putBoolean("auto_battle", v.autoBattle).apply() }
     override var seenLines: Set<String>
         get() = p.getString("seen_lines", "")!!.split(",").filter { it.isNotBlank() }.toSet()
         set(v) { p.edit().putString("seen_lines", v.joinToString(",")).apply() }
@@ -62,7 +62,7 @@ object HeartboundSave {
 
     fun encode(s: GameState): String = buildString {
         append("v=2\n")
-        append("day=${s.day}|gold=${s.gold}|phase=${s.phase}|act=${s.actionsLeft}|rooms=${s.rooms}|train=${s.training}|tavern=${s.tavern}\n")
+        append("day=${s.day}|gold=${s.gold}|phase=${s.phase}|act=${s.actionsLeft}|rooms=${s.rooms}|train=${s.training}|tavern=${s.tavern}|rep=${s.reputation}\n")
         val p = s.player
         append("P|${esc(p.name)}|${p.look}|${p.pronouns}|${p.origin}|${p.charm}|${p.wit}|${p.courage}\n")
         s.heroes.values.forEach { h ->
@@ -82,6 +82,9 @@ object HeartboundSave {
             append("Q|${r.day}|${r.questTitle ?: ""}|${r.questSuccess ?: ""}|${r.goldDelta}|${r.aff.entries.joinToString(",") { "${it.key}=${it.value}" }}|${r.leveled.joinToString(",")}|${r.injured ?: ""}|${r.recruited.joinToString(",")}|${r.newAchievements.joinToString(",")}\n")
         }
         s.log.takeLast(300).forEach { append("G|${esc(it)}\n") }
+        s.expedition?.let { x ->
+            append("X|${x.questId}|${x.party.joinToString(",")}|${x.daysLeft}|${x.totalDays}|${x.eventsDone}|${x.flags.joinToString(",")}\n")
+        }
         s.lastResult?.let { r ->
             append("R|${r.questId}|${if (r.success) 1 else 0}|${r.chance}|${r.roll}|${r.gold}|${r.xp}|${r.leveled.joinToString(",")}|${r.injuredId ?: ""}|${r.injuryDays}|${r.loot ?: ""}|${esc(r.note)}\n")
         }
@@ -89,7 +92,8 @@ object HeartboundSave {
 
     fun decode(raw: String): GameState {
         var day = 1; var gold = Heartbound.START_GOLD; var phase = "morning"; var act = 0
-        var rooms = 0; var train = 0; var tavern = 0
+        var rooms = 0; var train = 0; var tavern = 0; var rep = 0
+        var expedition: Expedition? = null
         val heroes = Heartbound.heroes.associate { it.id to HeroState(it.id) }.toMutableMap()
         val inv = mutableMapOf<String, Int>()
         val flags = mutableSetOf<String>()
@@ -117,6 +121,7 @@ object HeartboundSave {
                         "rooms" -> rooms = v.toInt()
                         "train" -> train = v.toInt()
                         "tavern" -> tavern = v.toInt()
+                        "rep" -> rep = v.toIntOrNull() ?: 0
                     }
                 }
             } else if (line.startsWith("P|")) {
@@ -149,7 +154,17 @@ object HeartboundSave {
                 val suc = p.getOrElse(3) { "" }
                 report = DayReport(p[1].toInt(), p[2].ifBlank { null }, if (suc == "") null else suc.toBooleanStrictOrNull() ?: (suc == "true" || suc == "1"), p[4].toInt(), mapInts(p.getOrElse(5) { "" }), p.getOrElse(6) { "" }.split(",").filter { it.isNotBlank() }, p.getOrElse(7) { "" }.ifBlank { null }, p.getOrElse(8) { "" }.split(",").filter { it.isNotBlank() }, p.getOrElse(9) { "" }.split(",").filter { it.isNotBlank() })
             } else if (line.startsWith("G|")) log += unesc(line.substring(2))
-            else if (line.startsWith("R|")) {
+            else if (line.startsWith("X|")) {
+                val p = line.split("|")
+                expedition = Expedition(
+                    questId = p[1],
+                    party = p.getOrElse(2) { "" }.split(",").filter { it.isNotBlank() },
+                    daysLeft = p.getOrElse(3) { "0" }.toIntOrNull() ?: 0,
+                    totalDays = p.getOrElse(4) { "1" }.toIntOrNull() ?: 1,
+                    eventsDone = p.getOrElse(5) { "0" }.toIntOrNull() ?: 0,
+                    flags = p.getOrElse(6) { "" }.split(",").filter { it.isNotBlank() }.toSet(),
+                )
+            } else if (line.startsWith("R|")) {
                 val p = line.split("|")
                 result = QuestResult(
                     questId = p[1], success = p[2] == "1", chance = p[3].toInt(), roll = p[4].toInt(),
@@ -160,7 +175,7 @@ object HeartboundSave {
                 )
             }
         }
-        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor)
+        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor, rep, expedition)
     }
 
     fun preview(raw: String?): SlotInfo? {

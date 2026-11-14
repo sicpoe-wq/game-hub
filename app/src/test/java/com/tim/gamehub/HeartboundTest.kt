@@ -451,4 +451,150 @@ T|kael_t1
         assertNull(decoded.world.route)
         assertEquals(0, decoded.world.chapter)
     }
+
+    @Test fun confirmQuestWithRollStillResolvesInstantly() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        c.jumpHome()
+        c.beginParty("cat")
+        c.toggleParty("yuna")
+        assertTrue(c.confirmQuest(0))
+        assertNull(c.battle)
+        assertEquals(HbScreen.Result, c.screen)
+        assertTrue(c.state.lastResult!!.success)
+        assertNull(c.state.expedition)
+        assertEquals(3, c.state.reputation)
+    }
+
+    @Test fun confirmQuestWithoutRollStartsBattle() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        c.jumpHome()
+        c.beginParty("cat")
+        c.toggleParty("yuna")
+        assertTrue(c.confirmQuest())
+        assertEquals(HbScreen.Battle, c.screen)
+        assertNotNull(c.battle)
+        assertFalse(c.battle!!.finished)
+    }
+
+    @Test fun autoBattleSettlesQuestAndPaysRep() {
+        val s = game()
+        val q = Heartbound.quest.getValue("cat")
+        val b = Battle.runAuto(s, kaelYuna(), q)
+        assertTrue("battle should finish", b.finished)
+        val (next, r) = HeartboundLogic.settleBattle(s, b)
+        assertEquals(b.victory == true, r.success)
+        if (r.success) {
+            assertEquals(q.gold, r.gold)
+            assertEquals(3, next.reputation)
+            assertTrue("won_cat" in next.flags)
+        } else {
+            assertEquals(q.gold / 5, r.gold)
+            assertEquals(0, next.reputation)
+        }
+        assertNull(next.expedition)
+        assertEquals("evening", next.phase)
+    }
+
+    @Test fun bondComboRequiresClassesAndAffection() {
+        val s0 = game()
+        val q = Heartbound.quest.getValue("escort")
+        val low = Battle.start(s0, kaelYuna(), q)
+        assertTrue(Battle.comboReady(s0, low).isEmpty())
+        val high = s0.copy(heroes = s0.heroes + ("kael" to s0.h("kael").copy(affection = 50)) + ("yuna" to s0.h("yuna").copy(affection = 50)))
+        val b = Battle.start(high, kaelYuna(), q)
+        val combos = Battle.comboReady(high, b)
+        assertTrue(combos.any { it.id == "oath" })
+        val used = Battle.act(b, Battle.skills.getValue("oath"), null, high)
+        assertTrue(used.usedCombo)
+        assertTrue(Battle.comboReady(high, used).isEmpty())
+    }
+
+    @Test fun reputationAndFlagsGateHarderQuests() {
+        val s = game()
+        val ids = HeartboundLogic.availableQuests(s).map { it.id }
+        assertTrue("cat" in ids)
+        assertFalse("ridge_hunt" in ids)
+        assertFalse("goblin_den" in ids)
+        assertFalse("covenant_envoy" in ids)
+        val mid = s.copy(day = 6, reputation = 10, flags = s.flags + "goblin_routed")
+        val midIds = HeartboundLogic.availableQuests(mid).map { it.id }
+        assertTrue("ridge_hunt" in midIds)
+        assertTrue("goblin_den" in midIds)
+        assertFalse("goblin_king" in midIds) // needs den_cleared and rep 12
+        val late = mid.copy(day = 8, reputation = 25, flags = mid.flags + setOf("den_cleared", "plot_ch1_done"))
+        val lateIds = HeartboundLogic.availableQuests(late).map { it.id }
+        assertTrue("goblin_king" in lateIds)
+        assertTrue("covenant_envoy" in lateIds)
+        val once = late.copy(flags = late.flags + setOf("won_goblin_king"))
+        assertFalse("goblin_king" in HeartboundLogic.availableQuests(once).map { it.id })
+    }
+
+    @Test fun ledgerBranchUnlocksDifferentFollowups() {
+        val s = game().copy(day = 3, flags = setOf("ledger_found"))
+        assertNotNull(Travel.pendingBranch(s))
+        val mercy = s.copy(flags = s.flags + "ledger_mercy")
+        assertNull(Travel.pendingBranch(mercy))
+        val idsM = HeartboundLogic.availableQuests(mercy).map { it.id }
+        assertTrue("ledger_mercy" in idsM)
+        assertFalse("ledger_law" in idsM)
+        val law = s.copy(flags = s.flags + "ledger_law")
+        val idsL = HeartboundLogic.availableQuests(law).map { it.id }
+        assertTrue("ledger_law" in idsL)
+        assertFalse("ledger_mercy" in idsL)
+    }
+
+    @Test fun expeditionPersistsAndTicksAndBlocksHallReady() {
+        val s0 = game()
+        val exp = Expedition("ridge_hunt", kaelYuna(), daysLeft = 1, totalDays = 2, flags = setOf("travel_haste"))
+        val s = s0.copy(expedition = exp, reputation = 12, day = 5)
+        assertTrue(s.onRoad("kael"))
+        assertTrue(s.hallReady().none { it.id == "kael" || it.id == "yuna" })
+        val raw = HeartboundSave.encode(s)
+        assertTrue(raw.contains("X|ridge_hunt"))
+        assertTrue(raw.contains("|rep=12"))
+        val back = HeartboundSave.decode(raw)
+        assertEquals(1, back.expedition!!.daysLeft)
+        assertEquals(listOf("kael", "yuna"), back.expedition!!.party)
+        assertEquals(setOf("travel_haste"), back.expedition!!.flags)
+        assertEquals(12, back.reputation)
+        val next = HeartboundLogic.turnIn(back)
+        assertEquals(0, next.expedition!!.daysLeft)
+        assertEquals(6, next.day)
+        // old v2 without rep or X still loads
+        val legacy = HeartboundSave.encode(game()).replace("|rep=0", "")
+        assertFalse("rep=" in legacy)
+        val migrated = HeartboundSave.decode(legacy)
+        assertEquals(0, migrated.reputation)
+        assertNull(migrated.expedition)
+    }
+
+    @Test fun travelChoiceSticksToExpeditionAndPaysCache() {
+        val c = HeartboundController(MemorySave(), rng = Random(0), instantText = true)
+        c.newGame()
+        c.jumpHome(c.state.copy(expedition = Expedition("ridge_hunt", kaelYuna(), 1, 2)))
+        c.jumpDialogue(Travel.preview(), "travel")
+        assertEquals(HbScreen.Dialogue, c.screen)
+        assertEquals("travel", c.play?.kind)
+        repeat(20) { if (c.screen == HbScreen.Dialogue) { if (c.showingChoices()) c.choose(0) else c.advance() } }
+        assertEquals(HbScreen.Evening, c.screen)
+        assertEquals(1, c.state.expedition!!.eventsDone)
+        assertTrue("travel_${c.state.day}" in c.state.flags)
+    }
+
+    @Test fun multiDayConfirmStartsTravelNotInstantResolve() {
+        val c = HeartboundController(MemorySave(), rng = Random(2), instantText = true)
+        c.newGame()
+        val ready = c.state.copy(day = 5, reputation = 12, phase = "morning")
+        c.jumpHome(ready)
+        c.beginParty("ridge_hunt")
+        c.toggleParty("kael"); c.toggleParty("yuna")
+        assertTrue(c.confirmQuest())
+        assertEquals(HbScreen.Dialogue, c.screen)
+        assertEquals("travel", c.play?.kind)
+        assertEquals("ridge_hunt", c.state.expedition?.questId)
+        assertEquals(1, c.state.expedition?.daysLeft)
+        assertNull(c.state.lastResult)
+    }
 }

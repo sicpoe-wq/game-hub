@@ -87,4 +87,14 @@ class ScreensTest {
         jumpDialogue(Arc.careFor("kael"), "care", line = 1)
     }
     @Test fun heartbound_fade() = hb { jumpFade(Story.eventById("kael_confess")!!) }
+
+    @Test fun heartbound_battle() = hb {
+        jumpHome(state.copy(heroes = state.heroes + ("mira" to state.h("mira").copy(recruited = true, affection = 45, level = 3))
+            + ("kael" to state.h("kael").copy(affection = 50)) + ("yuna" to state.h("yuna").copy(affection = 50))))
+        jumpBattle("goblin_king", listOf("kael", "yuna", "mira"), auto = false)
+    }
+    @Test fun heartbound_travel() = hb {
+        jumpHome(state.copy(phase = "evening", expedition = Expedition("ridge_hunt", listOf("kael", "yuna"), 1, 2)))
+        jumpDialogue(Travel.preview(), "travel", line = 1)
+    }
 }

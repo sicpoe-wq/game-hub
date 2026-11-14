@@ -25,6 +25,7 @@ sealed class HbScreen {
     data object Summary : HbScreen()
     data object Log : HbScreen()
     data object CompanionPick : HbScreen()
+    data object Battle : HbScreen()
 }
 
 data class ScenePlay(
@@ -64,6 +65,7 @@ class HeartboundController(
     var returnTo by mutableStateOf<HbScreen>(HbScreen.Title)
     var settings by mutableStateOf(store.settings)
     var lastFocus by mutableStateOf<String?>(null)
+    var battle by mutableStateOf<BattleState?>(null)
 
     val hasSave get() = (0 until store.slotCount).any { store.slot(it) != null }
 
@@ -118,6 +120,11 @@ class HeartboundController(
     fun setSpeed(n: Int) { settings = settings.copy(textSpeed = n.coerceIn(0, 3)); store.settings = settings }
     fun setSkipSeen(v: Boolean) { settings = settings.copy(skipSeen = v); store.settings = settings }
     fun setFadeToBlack(v: Boolean) { settings = settings.copy(fadeToBlack = v); store.settings = settings }
+    fun setAutoBattle(v: Boolean) {
+        settings = settings.copy(autoBattle = v)
+        store.settings = settings
+        battle = battle?.copy(auto = v)
+    }
     fun markSeen(id: String) { store.seenLines = store.seenLines + id }
     fun isSeen(id: String) = id in store.seenLines
     fun lineId(): String? {
@@ -147,7 +154,8 @@ class HeartboundController(
     private fun maybeOfferMorning() {
         if (screen != HbScreen.Home || state.phase != "morning") return
         pendingRecruit()?.let { openScene(it, "recruit", it.heroId); return }
-        Arc.pendingPlot(state)?.let { openScene(it, "plot", it.heroId) }
+        Arc.pendingPlot(state)?.let { openScene(it, "plot", it.heroId); return }
+        if (state.expedition != null && state.expedition!!.daysLeft > 0) offerTravel()
     }
 
     private fun maybeOfferRecruit() = maybeOfferMorning()
@@ -175,14 +183,18 @@ class HeartboundController(
         maybeOfferRival()
     }
 
-    fun availableQuests(): List<QuestDef> = Heartbound.quests.filter { it.minDay <= state.day }
+    fun availableQuests(): List<QuestDef> = HeartboundLogic.availableQuests(state)
 
     fun beginParty(id: String) {
+        if (state.expedition != null) {
+            toast = "A party is already in the field."
+            return
+        }
         questId = id; party = emptyList(); screen = HbScreen.Party
     }
     fun toggleParty(id: String) {
         val q = Heartbound.quest[questId] ?: return
-        if (!state.h(id).ready) return
+        if (!state.h(id).ready || state.onRoad(id)) return
         party = if (id in party) party - id else if (party.size < q.maxParty) party + id else party
     }
     fun chance(): Int? {
@@ -193,15 +205,85 @@ class HeartboundController(
     fun confirmQuest(roll: Int? = null): Boolean {
         val q = Heartbound.quest[questId] ?: return false
         if (party.size !in q.minParty..q.maxParty) return false
-        if (party.any { !state.h(it).ready }) return false
-        val r = roll ?: rng.nextInt(100)
-        val (next, _) = HeartboundLogic.resolve(state, party, q, r)
+        if (party.any { !state.h(it).ready || state.onRoad(it) }) return false
+        if (roll != null) {
+            val (next, _) = HeartboundLogic.resolve(state, party, q, roll)
+            commit(next)
+            screen = HbScreen.Result
+            return true
+        }
+        val exp = Expedition(q.id, party, daysLeft = (q.days - 1).coerceAtLeast(0), totalDays = q.days)
+        commit(state.copy(expedition = exp), toastNew = false)
+        return if (q.days >= 2) { offerTravel(); true } else { startBattle(); true }
+    }
+
+    fun startBattle() {
+        val ex = state.expedition
+        val q = Heartbound.quest[ex?.questId ?: questId] ?: return
+        val p = ex?.party ?: party
+        questId = q.id
+        party = p
+        battle = Battle.start(state, p, q, auto = settings.autoBattle)
+        screen = HbScreen.Battle
+    }
+
+    fun joinFight() {
+        val ex = state.expedition ?: return
+        if (ex.daysLeft > 0) return
+        questId = ex.questId
+        party = ex.party
+        startBattle()
+    }
+
+    fun autoBattleStep() {
+        val b = battle ?: return
+        if (b.finished) { finishBattle(); return }
+        battle = Battle.autoStep(state, b)
+    }
+
+    fun playerAct(skillId: String, targetId: String?) {
+        val b = battle ?: return
+        if (b.finished || b.auto) return
+        val skill = Battle.skills[skillId] ?: return
+        battle = Battle.act(b, skill, targetId, state)
+    }
+
+    fun toggleBattleAuto() { setAutoBattle(!(battle?.auto ?: settings.autoBattle)) }
+
+    fun retreatBattle() {
+        val b = battle ?: return
+        val lost = b.copy(finished = true, victory = false, log = b.log + "You call the retreat.")
+        battle = lost
+        finishBattle()
+    }
+
+    fun finishBattle() {
+        val b = battle ?: return
+        if (!b.finished) return
+        var (next, _) = HeartboundLogic.settleBattle(state, b)
+        if (b.usedCombo) next = next.copy(flags = next.flags + "used_combo")
+        battle = null
         commit(next)
         screen = HbScreen.Result
-        return true
     }
+
+    fun offerTravel() {
+        val ex = state.expedition ?: return
+        if (ex.daysLeft <= 0) return
+        if ("travel_${state.day}" in state.flags) {
+            if (state.phase != "evening") commit(state.copy(phase = "evening", actionsLeft = state.eveningCap()), toastNew = false)
+            screen = HbScreen.Evening
+            return
+        }
+        val q = Heartbound.quest[ex.questId] ?: return
+        if (state.phase != "evening") commit(state.copy(phase = "evening", actionsLeft = state.eveningCap()), toastNew = false)
+        val scene = Travel.pick(state, ex.party, q, rng)
+        openScene(scene, "travel", scene.heroId)
+    }
+
     fun dismissResult() {
         screen = HbScreen.Evening
+        Travel.pendingBranch(state)?.let { openScene(it, "branch", null); return }
         maybeOfferRival()
     }
 
@@ -428,6 +510,31 @@ class HeartboundController(
             }
             "talk", "date" -> s = s.copy(seenTalks = s.seenTalks + p.scene.id, actionsLeft = (s.actionsLeft - 1).coerceAtLeast(0))
         }
+        if (p.kind == "travel") {
+            val flag = p.pendingFlag
+            val exp = s.expedition
+            if (exp != null) {
+                var flags = exp.flags
+                if (flag != null) flags = flags + flag
+                s = s.copy(expedition = exp.copy(flags = flags, eventsDone = exp.eventsDone + 1), flags = s.flags + "travel_${s.day}" + setOfNotNull(flag))
+            } else {
+                s = s.copy(flags = s.flags + "travel_${s.day}")
+            }
+            if ("travel_cache" in s.flags && "paid_travel_cache" !in s.flags) {
+                s = s.copy(gold = s.gold + 20, flags = s.flags + "paid_travel_cache")
+            }
+            s = s.copy(phase = "evening", actionsLeft = s.eveningCap())
+            commit(s)
+            play = null
+            screen = HbScreen.Evening
+            return
+        }
+        if (p.kind == "branch") {
+            commit(s)
+            play = null
+            screen = HbScreen.Evening
+            return
+        }
         commit(s)
         play = null
         screen = when (p.kind) {
@@ -471,7 +578,7 @@ class HeartboundController(
         val bg = play?.scene?.bg
         if (bg in setOf("festival", "harvest", "chapel")) return true
         if (bg == "beach") return false
-        return state.phase == "evening" || (screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift", "group", "care", "jealousy", "rival", "plot"))
+        return state.phase == "evening" || (screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift", "group", "care", "jealousy", "rival", "plot", "travel", "branch"))
     }
 
     fun jumpHome(s: GameState = state) {
@@ -487,6 +594,13 @@ class HeartboundController(
         screen = HbScreen.Dialogue
     }
     fun jumpScreen(s: HbScreen) { screen = s }
+    fun jumpBattle(questId: String = "goblin_king", partyIds: List<String> = listOf("kael", "yuna", "mira"), auto: Boolean = false) {
+        started = true
+        this.questId = questId
+        this.party = partyIds
+        battle = Battle.start(state, partyIds, Heartbound.quest.getValue(questId), auto)
+        screen = HbScreen.Battle
+    }
     fun jumpFade(scene: Scene) {
         val fade = scene.choices.firstOrNull { ch -> ch.next.any { it.fade } }?.next?.last { it.fade } ?: return
         started = true
