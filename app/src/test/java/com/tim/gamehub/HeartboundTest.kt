@@ -328,4 +328,127 @@ T|kael_t1
         assertTrue(clear.contains("Whetstone"))
         assertFalse(vague.contains("Whetstone"))
     }
+
+    private fun HeartboundController.pump(limit: Int = 40) {
+        repeat(limit) {
+            if (screen != HbScreen.Dialogue) return
+            if (showingChoices()) return
+            advance()
+        }
+    }
+
+    private fun HeartboundController.withBonds(vararg ids: Pair<String, Int>, seenThrough: Int = 3, extra: Set<String> = emptySet()): Map<String, HeroState> {
+        val ev = mapOf("kael" to listOf("kael_e1","kael_e2","kael_e3"), "mira" to listOf("mira_e1","mira_e2","mira_e3"), "rin" to listOf("rin_e1","rin_e2","rin_e3"), "sera" to listOf("sera_e1","sera_e2","sera_e3"), "yuna" to listOf("yuna_e1","yuna_e2","yuna_e3"))
+        var heroes = state.heroes
+        ids.forEach { (id, aff) ->
+            val seen = ev.getValue(id).take(seenThrough).toSet() + extra
+            heroes = heroes + (id to state.h(id).copy(recruited = true, affection = aff, seenEvents = seen))
+        }
+        return heroes
+    }
+
+    @Test fun exclusiveRouteLocksOtherRomance() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame(Player("Tim", "a", "he", "soldier"))
+        c.pump(); if (c.showingChoices()) c.choose(0); c.pump()
+        val heroes = c.withBonds("kael" to 85, "mira" to 85)
+        c.jumpHome(c.state.copy(phase = "evening", actionsLeft = 2, heroes = heroes))
+        assertTrue(c.startTalk("kael"))
+        assertEquals("kael_confess", c.play?.scene?.id)
+        c.pump()
+        assertTrue(c.showingChoices())
+        c.choose(0); c.pump()
+        assertEquals("kael", c.state.world.route)
+        assertTrue("kael_confess" in c.state.flags)
+        assertTrue("promised" in c.state.achievements)
+        c.jumpHome(c.state.copy(phase = "evening", actionsLeft = 2))
+        assertTrue(c.startTalk("mira"))
+        assertEquals("mira_confess", c.play?.scene?.id)
+        c.pump()
+        val ch = c.choices()
+        assertTrue(ch.any { it.first.needFreeRoute && !it.second })
+        assertTrue(ch.any { !it.first.needFreeRoute && it.second })
+    }
+
+    @Test fun fadeToBlackCanBeSkipped() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame(Player("Tim", "a", "they", "wanderer"))
+        c.pump(); if (c.showingChoices()) c.choose(0); c.pump()
+        c.setFadeToBlack(false)
+        val heroes = c.withBonds("kael" to 85)
+        c.jumpHome(c.state.copy(phase = "evening", actionsLeft = 2, heroes = heroes))
+        c.startTalk("kael"); c.pump(); c.choose(0); c.pump()
+        assertTrue(c.currentLine()?.fade != true || c.screen != HbScreen.Dialogue)
+        assertEquals("kael", c.state.world.route)
+    }
+
+    @Test fun plotChapterOneAndGroupEvent() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame(Player("Tim", "a", "they", "wanderer"))
+        c.pump(); if (c.showingChoices()) c.choose(0); c.pump()
+        val roster = c.withBonds("mira" to 10, "sera" to 10, "rin" to 10)
+        c.jumpHome(c.state.copy(day = 3, phase = "morning", heroes = roster))
+        c.goHome()
+        assertEquals("plot_letter", c.play?.scene?.id)
+        c.pump(); c.choose(0); c.pump()
+        assertTrue("plot_letter" in c.state.flags)
+        c.jumpHome(c.state.copy(day = 9, phase = "morning", flags = c.state.flags + "plot_inquiry" + "plot_woods", heroes = c.state.heroes))
+        c.goHome()
+        assertEquals("plot_climax", c.play?.scene?.id)
+        c.pump(); c.choose(0); c.pump()
+        assertTrue("plot_ch1_done" in c.state.flags)
+        assertEquals(1, c.state.world.chapter)
+        assertTrue("a_light_kept" in c.state.achievements)
+        c.jumpHome(c.state.copy(day = 6, phase = "evening", actionsLeft = 2))
+        assertEquals("festival", c.pendingGroup()?.id)
+        c.chooseCompanion("yuna")
+        assertEquals("festival_yuna", c.play?.scene?.id)
+        c.pump(); if (c.showingChoices()) c.choose(1); c.pump()
+        assertTrue("event_festival" in c.state.flags)
+        assertTrue("lanterns" in c.state.achievements)
+    }
+
+    @Test fun careSceneAndEndingGates() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame(Player("Tim", "a", "they", "wanderer"))
+        c.pump(); if (c.showingChoices()) c.choose(0); c.pump()
+        val heroes = c.state.heroes + ("kael" to c.state.h("kael").copy(injuredDays = 2, affection = 40))
+        c.jumpHome(c.state.copy(phase = "evening", actionsLeft = 0, heroes = heroes))
+        assertTrue(c.canCare("kael"))
+        assertTrue(c.startCare("kael"))
+        c.pump(); c.choose(0); c.pump()
+        assertTrue(c.state.flags.any { it.startsWith("cared_kael_") })
+        assertTrue("bedside" in c.state.achievements)
+        val ready = c.state.copy(
+            world = c.state.world.copy(route = "kael", chapter = 1),
+            flags = c.state.flags + "kael_confess" + "kael_vow",
+            heroes = c.state.heroes + ("kael" to c.state.h("kael").copy(affection = 100, injuredDays = 0, seenEvents = setOf("kael_e1", "kael_e2", "kael_e3", "kael_confess", "kael_propose"))),
+        )
+        assertEquals("kael_ending", Story.eventFor("kael", ready)?.id)
+        val tooSoon = ready.copy(world = ready.world.copy(chapter = 0))
+        assertNull(Story.eventFor("kael", tooSoon))
+    }
+
+    @Test fun journalListsSeenTitlesOnly() {
+        val seen = setOf("kael_e1")
+        val shown = Story.allBondEvents().filter { it.heroId == "kael" && it.id in seen }.map { it.title }
+        val hidden = Story.allBondEvents().filter { it.heroId == "kael" && it.id !in seen }.mapNotNull { it.title }
+        assertTrue(shown.contains("The Unfinished Sword"))
+        assertTrue(hidden.contains("A Letter from the Holds"))
+        assertTrue(hidden.contains("The Watch, Spoken Aloud"))
+    }
+
+    @Test fun v2SaveKeepsRouteAndChapter() {
+        val base = HeartboundLogic.newGame(Player("Tim", "d", "he", "soldier"))
+        val s = base.copy(world = base.world.copy(route = "sera", chapter = 1), flags = base.flags + "sera_confess" + "plot_ch1_done")
+        val again = HeartboundSave.decode(HeartboundSave.encode(s))
+        assertEquals("sera", again.world.route)
+        assertEquals(1, again.world.chapter)
+        assertTrue("sera_confess" in again.flags)
+        assertEquals("Tim", again.player.name)
+        val v14 = HeartboundSave.encode(HeartboundLogic.newGame()).replace("W|spring|clear||0", "W|spring|clear||0")
+        val decoded = HeartboundSave.decode(v14)
+        assertNull(decoded.world.route)
+        assertEquals(0, decoded.world.chapter)
+    }
 }

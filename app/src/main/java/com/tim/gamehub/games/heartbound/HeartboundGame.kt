@@ -56,6 +56,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Home, HbScreen.Evening -> c.backToTitle()
             HbScreen.Dialogue -> if (c.showingChoices()) { /* wait */ } else c.advance()
             HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log -> c.closeMenu()
+            HbScreen.CompanionPick -> c.goHome()
             HbScreen.Summary -> c.dismissSummary()
             else -> c.goHome()
         }
@@ -80,6 +81,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Trophies -> TrophyScreen(c)
             HbScreen.Summary -> SummaryScreen(c)
             HbScreen.Log -> LogScreen(c)
+            HbScreen.CompanionPick -> CompanionPickScreen(c)
         }
         c.toast?.let { msg ->
             LaunchedEffect(msg) { delay(1800); c.toast = null }
@@ -90,14 +92,18 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
 }
 
 @Composable private fun Bg(name: String, dim: Float = 0.18f, night: Boolean = false) {
-    val res = when (name to night) {
-        "tavern" to true -> R.drawable.bg_tavern_night
-        "town" to true -> R.drawable.bg_town_night
-        "forest" to true -> R.drawable.bg_forest_night
-        "guild" to true -> R.drawable.bg_guild_night
-        "tavern" to false -> R.drawable.bg_tavern
-        "town" to false -> R.drawable.bg_town
-        "forest" to false -> R.drawable.bg_forest
+    val res = when {
+        name == "festival" -> R.drawable.bg_festival
+        name == "beach" -> R.drawable.bg_beach
+        name == "harvest" -> R.drawable.bg_harvest
+        name == "chapel" -> R.drawable.bg_chapel
+        name == "tavern" && night -> R.drawable.bg_tavern_night
+        name == "town" && night -> R.drawable.bg_town_night
+        name == "forest" && night -> R.drawable.bg_forest_night
+        name == "guild" && night -> R.drawable.bg_guild_night
+        name == "tavern" -> R.drawable.bg_tavern
+        name == "town" -> R.drawable.bg_town
+        name == "forest" -> R.drawable.bg_forest
         else -> if (night) R.drawable.bg_guild_night else R.drawable.bg_guild
     }
     Image(painterResource(res), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -215,8 +221,14 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
         Bg("guild", if (morning) 0.22f else 0.28f, night = !morning)
         Column(Modifier.fillMaxSize()) {
             TopBar(c, onExit, if (morning) "Day ${st.day}  ·  Morning" else "Day ${st.day}  ·  Evening")
-            Text(if (morning) "Morning, ${st.player.name}. The hall is awake." else "The work is done, ${st.player.name}. The evening is yours.",
-                color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_greet"))
+            val routeName = st.world.route?.let { Heartbound.hero[it]?.name }
+            val greet = when {
+                morning && st.world.chapter >= 1 -> "Morning, ${st.player.name}. The hall still stands."
+                morning -> "Morning, ${st.player.name}. The hall is awake."
+                else -> "The work is done, ${st.player.name}. The evening is yours."
+            }
+            Text(greet, color = Cream, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp).testTag("hb_greet"))
+            if (routeName != null) Text("Promised to $routeName.", color = Gold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
             Spacer(Modifier.height(12.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 st.recruited().forEach { h ->
@@ -247,6 +259,14 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                 }
             } else {
                 Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    c.pendingGroup()?.let { ev ->
+                        Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_group_banner")) {
+                            Text(ev.title, fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
+                            Text(ev.blurb, color = Wood, fontSize = 13.sp)
+                            Spacer(Modifier.height(8.dp))
+                            HbButton("Choose a companion", { c.openCompanionPick() }, Modifier.fillMaxWidth(), tag = "hb_group_pick")
+                        }
+                    }
                     Text(if (st.actionsLeft > 0) "Conversations left: ${st.actionsLeft}" else "It's late. Let them rest.",
                         color = Cream, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("hb_actions"))
                     st.recruited().forEach { h ->
@@ -256,6 +276,10 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                             Column(Modifier.weight(1f)) {
                                 Text(h.def.name, fontWeight = FontWeight.Bold, color = Ink, fontSize = 15.sp)
                                 Text("${h.def.cls.title}  ·  ${h.tier().label}", fontSize = 11.sp, color = Wood)
+                            }
+                            if (c.canCare(h.id)) {
+                                Text("Sit with", color = Cream, modifier = Modifier.background(Color(0xFF2F6F6A), Soft).clickable { c.startCare(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp).testTag("hb_care_${h.id}"))
+                                Spacer(Modifier.width(6.dp))
                             }
                             if (st.actionsLeft > 0) {
                                 Text("Talk", color = Cream, modifier = Modifier.background(Burgundy, Soft).clickable { c.startTalk(h.id) }.padding(horizontal = 10.dp, vertical = 6.dp).testTag("hb_talk_${h.id}"))
@@ -555,13 +579,20 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                 }
             }
         }
-        if (face != null) {
+        val fading = line?.fade == true
+        if (fading) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)))
+        } else if (face != null) {
             Portrait(face, Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.70f).padding(bottom = 150.dp), expr = expr)
         }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp, 8.dp)) {
+        Column(Modifier.align(if (fading) Alignment.Center else Alignment.BottomCenter).fillMaxWidth().padding(12.dp, 8.dp)) {
             if (p.awaitingChoice) {
                 c.choices().forEachIndexed { i, (ch, ok) ->
-                    val need = if (!ok && ch.stat != null) "  (${ch.stat.replaceFirstChar { it.titlecase() }} ${ch.statMin})" else ""
+                    val need = when {
+                        !ok && ch.needFreeRoute -> "  (a promise already made)"
+                        !ok && ch.stat != null -> "  (${ch.stat.replaceFirstChar { it.titlecase() }} ${ch.statMin})"
+                        else -> ""
+                    }
                     Text(ch.text + need, color = if (ok) Ink else Wood, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).shadow(4.dp, Soft)
                             .background(if (ok) Cream else Color(0xFFD7D0C8), Soft)
@@ -589,7 +620,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     val d = c.draft
     Box(Modifier.fillMaxSize().testTag("hb_create")) {
         Bg("guild", 0.4f)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Column(Modifier.fillMaxSize().padding(bottom = 108.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("Who walks through the door?", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
@@ -607,7 +638,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                             Column(Modifier.weight(1f).shadow(4.dp, Soft).background(if (d.look == look.id) Gold else Cream, Soft)
                                 .clickable { c.draft = d.copy(look = look.id) }.padding(8.dp).testTag("hb_look_${look.id}"),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
-                                Portrait(look.id, Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(10.dp)), ContentScale.Crop)
+                                Portrait(look.id, Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(10.dp)), ContentScale.Crop)
                                 Text(look.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
                             }
                         }
@@ -629,11 +660,12 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Text("Charm ${o.charm}   Wit ${o.wit}   Courage ${o.courage}", color = Burgundy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            HbButton("Enter the hall", { c.newGame(c.draft) }, Modifier.fillMaxWidth(), enabled = d.name.isNotBlank(), tag = "hb_begin")
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             Pill("‹  Back", onClick = { c.backToTitle() })
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(8.dp))
+        }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.45f)).padding(12.dp, 10.dp)) {
+            HbButton("Enter the hall", { c.newGame(c.draft) }, Modifier.fillMaxWidth(), enabled = d.name.isNotBlank(), tag = "hb_begin")
         }
     }
 }
@@ -693,6 +725,15 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Text("Already-read lines jump to the end.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.setFadeToBlack(!c.settings.fadeToBlack) }.testTag("hb_fade")) {
+                Text(if (c.settings.fadeToBlack) "●" else "○", color = Gold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Intimate fade-outs", color = Cream, fontWeight = FontWeight.Bold)
+                    Text("After certain moments the scene cuts away. Nothing explicit is shown or described. Turn this off to skip those cutaways.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
             Spacer(Modifier.height(24.dp))
             Pill("‹  Back", onClick = { c.closeMenu() })
         }
@@ -706,6 +747,17 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             TopBar(c, {}, "Relationship journal", back = { c.closeMenu() })
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Charm ${c.state.player.charm}   Wit ${c.state.player.wit}   Courage ${c.state.player.courage}", color = Gold, fontWeight = FontWeight.SemiBold)
+                c.state.world.route?.let { id ->
+                    Text("Promised to ${Heartbound.hero.getValue(id).name}.", color = Burgundy, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                val plotNote = when {
+                    c.state.world.chapter >= 1 || "plot_ch1_done" in c.state.flags -> "Chapter 1 is complete. The Ash Covenant withdrew — for now."
+                    "plot_woods" in c.state.flags -> "You have followed the hungry light to the old watch."
+                    "plot_inquiry" in c.state.flags -> "You have seen the mark in the emptied chapel."
+                    "plot_letter" in c.state.flags -> "You have begun to uncover the hall's history."
+                    else -> null
+                }
+                plotNote?.let { Text(it, color = Cream, fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp)) }
                 Heartbound.heroes.forEach { d ->
                     val h = c.state.h(d.id)
                     Column(Modifier.fillMaxWidth().background(Cream.copy(alpha = 0.95f), Soft).padding(12.dp).testTag("hb_j_${d.id}")) {
@@ -724,12 +776,14 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                         if (h.recruited) {
                             Spacer(Modifier.height(6.dp))
                             Text(Content.giftHint(d, h.affection), fontSize = 13.sp, color = Ink)
-                            Story.events.filter { it.heroId == d.id }.forEach { e ->
+                            Story.allBondEvents().filter { it.heroId == d.id }.forEach { e ->
                                 val seen = e.id in h.seenEvents
-                                val open = h.affection >= e.reqAff
-                                Text((if (seen) "✦ " else if (open) "○ " else "· ") + (e.title ?: e.id) + if (!open) "  (at ${e.reqAff})" else if (!seen) "  — ready" else "",
-                                    fontSize = 12.sp, color = if (seen) Burgundy else Ink)
+                                if (seen) Text("✦  ${e.title ?: "A memory kept"}", fontSize = 12.sp, color = Burgundy)
                             }
+                            val waiting = Story.allBondEvents().any { it.heroId == d.id && it.id !in h.seenEvents && Story.available(it, c.state) && h.affection >= it.reqAff }
+                            val later = Story.allBondEvents().any { it.heroId == d.id && it.id !in h.seenEvents && h.affection < it.reqAff }
+                            if (waiting) Text("○  A conversation is waiting, when you have a quiet evening.", fontSize = 12.sp, color = Ink)
+                            else if (later) Text("·  A closer bond may unlock another memory.", fontSize = 12.sp, color = Wood)
                         }
                     }
                 }
@@ -800,6 +854,34 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                 }
                 Spacer(Modifier.height(16.dp))
             }
+        }
+    }
+}
+
+
+@Composable private fun CompanionPickScreen(c: HeartboundController) {
+    val ev = c.pendingGroup()
+    Box(Modifier.fillMaxSize().testTag("hb_companion")) {
+        Bg(ev?.bg ?: "guild", 0.3f, night = ev?.id != "beach")
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Text(ev?.title ?: "An evening out", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Text(ev?.blurb ?: "Who walks with you?", color = Cream, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
+            c.state.recruited().forEach { h ->
+                val promised = c.state.world.route == h.id
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).background(Cream.copy(alpha = 0.95f), Soft)
+                    .clickable { c.chooseCompanion(h.id) }.padding(10.dp).testTag("hb_comp_${h.id}"),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Portrait(h.id, Modifier.size(56.dp).clip(CircleShape), ContentScale.Crop)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(h.def.name, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(h.tier().label + if (promised) "  ·  promised" else "", fontSize = 12.sp, color = Wood)
+                    }
+                    Text("Take with you", color = Cream, modifier = Modifier.background(Burgundy, Soft).padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Pill("‹  Back", onClick = { c.goHome() })
         }
     }
 }

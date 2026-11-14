@@ -49,8 +49,8 @@ class PrefsSave(ctx: android.content.Context) : SaveStore {
         ed.apply()
     }
     override var settings: HbSettings
-        get() = HbSettings(p.getInt("text_speed", 2), p.getBoolean("skip_seen", false))
-        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).apply() }
+        get() = HbSettings(p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true))
+        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).apply() }
     override var seenLines: Set<String>
         get() = p.getString("seen_lines", "")!!.split(",").filter { it.isNotBlank() }.toSet()
         set(v) { p.edit().putString("seen_lines", v.joinToString(",")).apply() }

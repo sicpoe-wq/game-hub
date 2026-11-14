@@ -36,7 +36,7 @@ data class Player(
 }
 
 data class Achievement(val id: String, val title: String, val desc: String)
-data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false) {
+data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true) {
     /** 0 = instant, 1 = fast, 2 = normal, 3 = slow */
     fun delayMs() = when (textSpeed) { 0 -> 0; 1 -> 8; 2 -> 16; else -> 28 }
     fun speedLabel() = when (textSpeed) { 0 -> "Instant"; 1 -> "Fast"; 2 -> "Normal"; else -> "Slow" }
@@ -93,6 +93,14 @@ object Content {
         Achievement("mason", "Raising the Hall", "Improve a wing of the guild."),
         Achievement("week", "A Week in Lumenreach", "See the seventh morning."),
         Achievement("named", "A Name on the Door", "The hall knows what to call you."),
+        Achievement("promised", "A Promise Made", "Choose an exclusive route."),
+        Achievement("a_vow", "A Vow", "Accept a proposal."),
+        Achievement("an_ending", "A Life Chosen", "Reach a partner's ending."),
+        Achievement("lanterns", "Under the Lanterns", "Share the Festival of Lanterns."),
+        Achievement("shore", "A Day at the Shore", "Spend Shore Day with a companion."),
+        Achievement("harvest_dance", "The Harvest Dance", "Share the harvest dance."),
+        Achievement("a_light_kept", "A Light Kept", "Finish the first chapter of Lumenreach's story."),
+        Achievement("bedside", "Bedside", "Sit with an injured hero."),
     )
     val achById = achievements.associateBy { it.id }
 
@@ -155,6 +163,14 @@ object Ach {
         if ("bought" in s.flags) add("patron")
         if ("won_quest" in s.flags) add("first_job")
         if ("lost_quest" in s.flags) add("came_home")
+        if (s.world.route != null || s.flags.any { it.endsWith("_confess") }) add("promised")
+        if (s.flags.any { it.endsWith("_vow") }) add("a_vow")
+        if (s.flags.any { it.endsWith("_ending") && it != "plot_inquiry" }) add("an_ending")
+        if ("event_festival" in s.flags) add("lanterns")
+        if ("event_beach" in s.flags) add("shore")
+        if ("event_harvest" in s.flags) add("harvest_dance")
+        if ("plot_ch1_done" in s.flags || s.world.chapter >= 1) add("a_light_kept")
+        if (s.flags.any { it.startsWith("cared_") }) add("bedside")
         return have
     }
 }

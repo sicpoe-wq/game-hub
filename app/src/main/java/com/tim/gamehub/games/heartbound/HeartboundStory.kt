@@ -1,7 +1,7 @@
 package com.tim.gamehub.games.heartbound
 
-data class Line(val speaker: String, val text: String, val expr: String = "idle")
-data class Choice(val text: String, val delta: Int = 0, val flag: String? = null, val next: List<Line> = emptyList(), val recruit: Boolean = false, val stat: String? = null, val statMin: Int = 0, val origin: String? = null, val gain: String? = null)
+data class Line(val speaker: String, val text: String, val expr: String = "idle", val fade: Boolean = false)
+data class Choice(val text: String, val delta: Int = 0, val flag: String? = null, val next: List<Line> = emptyList(), val recruit: Boolean = false, val stat: String? = null, val statMin: Int = 0, val origin: String? = null, val gain: String? = null, val needFreeRoute: Boolean = false, val needRoute: String? = null)
 data class Scene(
     val id: String,
     val heroId: String?,
@@ -10,14 +10,19 @@ data class Scene(
     val reqAff: Int = 0,
     val lines: List<Line>,
     val choices: List<Choice> = emptyList(),
+    val needFlag: String? = null,
+    val needChapter: Int = 0,
+    val routeOnly: Boolean = false,
 )
 
-private fun L(speaker: String, text: String, expr: String = "idle") = Line(speaker, text, expr)
-private fun N(text: String) = Line("", text)
-private fun sc(
+internal fun L(speaker: String, text: String, expr: String = "idle") = Line(speaker, text, expr)
+internal fun N(text: String) = Line("", text)
+internal fun F(text: String) = Line("", text, fade = true)
+internal fun sc(
     id: String, hero: String?, bg: String, vararg lines: Line,
     title: String? = null, req: Int = 0, choices: List<Choice> = emptyList(),
-) = Scene(id, hero, bg, title, req, lines.toList(), choices)
+    needFlag: String? = null, needChapter: Int = 0, routeOnly: Boolean = false,
+) = Scene(id, hero, bg, title, req, lines.toList(), choices, needFlag, needChapter, routeOnly)
 
 object Story {
     val intro = sc(
@@ -352,12 +357,36 @@ object Story {
             )),
     )
 
+    fun allBondEvents(): List<Scene> = events + Arc.romance
+
     fun eventFor(heroId: String, aff: Int, seen: Set<String>) =
         events.filter { it.heroId == heroId && aff >= it.reqAff && it.id !in seen }.minByOrNull { it.reqAff }
 
+    fun eventFor(heroId: String, state: GameState): Scene? {
+        val aff = state.h(heroId).affection
+        val seen = state.h(heroId).seenEvents
+        return allBondEvents().filter { it.heroId == heroId && aff >= it.reqAff && it.id !in seen && available(it, state) }
+            .minByOrNull { it.reqAff }
+    }
+
+    fun available(scene: Scene, s: GameState): Boolean {
+        if (scene.needFlag != null && scene.needFlag !in s.flags) return false
+        if (s.world.chapter < scene.needChapter) return false
+        if (scene.routeOnly && s.world.route != scene.heroId) return false
+        return true
+    }
+
     fun talksFor(heroId: String) = talks.filter { it.heroId == heroId }
     fun dateFor(heroId: String) = dates.first { it.heroId == heroId }
-    fun eventById(id: String) = events.firstOrNull { it.id == id }
+    fun eventById(id: String): Scene? {
+        (allBondEvents() + Arc.plot + Arc.care + Arc.rival).firstOrNull { it.id == id }?.let { return it }
+        Arc.groupsCalendar.forEach { ev ->
+            Heartbound.heroes.forEach { h ->
+                if (id == "${ev.id}_${h.id}") return Arc.groupScene(ev.id, h.id)
+            }
+        }
+        return null
+    }
 
     fun giftLines(hero: HeroDef, gift: GiftDef, delta: Int): Scene {
         val (line, close) = when {
@@ -396,6 +425,13 @@ object Story {
     fun unlocked(c: Choice, p: Player): Boolean {
         if (c.stat != null && p.stat(c.stat) < c.statMin) return false
         if (c.origin != null && p.origin != c.origin) return false
+        return true
+    }
+
+    fun unlocked(c: Choice, s: GameState, heroId: String? = null): Boolean {
+        if (!unlocked(c, s.player)) return false
+        if (c.needFreeRoute && s.world.route != null && s.world.route != heroId) return false
+        if (c.needRoute != null && s.world.route != c.needRoute) return false
         return true
     }
 }

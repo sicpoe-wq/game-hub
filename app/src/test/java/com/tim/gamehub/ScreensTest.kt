@@ -71,4 +71,20 @@ class ScreensTest {
         jumpHome(state.copy(phase = "evening", heroes = state.heroes + ("kael" to state.h("kael").copy(affection = 62))))
         jumpDialogue(Story.eventById("kael_e3")!!, "event", line = 1)
     }
+    @Test fun heartbound_settings() = hb { openSettings() }
+    @Test fun heartbound_festival() = hb { jumpHome(state.copy(day = 6, phase = "evening", actionsLeft = 2)) }
+    @Test fun heartbound_companion() = hb {
+        jumpHome(state.copy(day = 6, phase = "evening", actionsLeft = 2))
+        openCompanionPick()
+    }
+    @Test fun heartbound_plot() = hb { jumpDialogue(Arc.plot.first(), "plot", line = 2) }
+    @Test fun heartbound_confess() = hb {
+        jumpHome(state.copy(phase = "evening", heroes = state.heroes + ("kael" to state.h("kael").copy(affection = 85))))
+        jumpDialogue(Story.eventById("kael_confess")!!, "event", line = 3)
+    }
+    @Test fun heartbound_care() = hb {
+        jumpHome(state.copy(phase = "evening", actionsLeft = 1, heroes = state.heroes + ("kael" to state.h("kael").copy(injuredDays = 2))))
+        jumpDialogue(Arc.careFor("kael"), "care", line = 1)
+    }
+    @Test fun heartbound_fade() = hb { jumpFade(Story.eventById("kael_confess")!!) }
 }

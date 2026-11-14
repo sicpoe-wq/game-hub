@@ -24,6 +24,7 @@ sealed class HbScreen {
     data object Trophies : HbScreen()
     data object Summary : HbScreen()
     data object Log : HbScreen()
+    data object CompanionPick : HbScreen()
 }
 
 data class ScenePlay(
@@ -62,6 +63,7 @@ class HeartboundController(
     var slotMode by mutableStateOf("load") // load | new
     var returnTo by mutableStateOf<HbScreen>(HbScreen.Title)
     var settings by mutableStateOf(store.settings)
+    var lastFocus by mutableStateOf<String?>(null)
 
     val hasSave get() = (0 until store.slotCount).any { store.slot(it) != null }
 
@@ -115,6 +117,7 @@ class HeartboundController(
 
     fun setSpeed(n: Int) { settings = settings.copy(textSpeed = n.coerceIn(0, 3)); store.settings = settings }
     fun setSkipSeen(v: Boolean) { settings = settings.copy(skipSeen = v); store.settings = settings }
+    fun setFadeToBlack(v: Boolean) { settings = settings.copy(fadeToBlack = v); store.settings = settings }
     fun markSeen(id: String) { store.seenLines = store.seenLines + id }
     fun isSeen(id: String) = id in store.seenLines
     fun lineId(): String? {
@@ -138,14 +141,16 @@ class HeartboundController(
     fun goHome() {
         play = null
         screen = if (state.phase == "evening") HbScreen.Evening else HbScreen.Home
-        maybeOfferRecruit()
+        maybeOfferMorning()
     }
 
-    private fun maybeOfferRecruit() {
+    private fun maybeOfferMorning() {
         if (screen != HbScreen.Home || state.phase != "morning") return
-        val offer = pendingRecruit() ?: return
-        openScene(offer, "recruit", offer.heroId)
+        pendingRecruit()?.let { openScene(it, "recruit", it.heroId); return }
+        Arc.pendingPlot(state)?.let { openScene(it, "plot", it.heroId) }
     }
+
+    private fun maybeOfferRecruit() = maybeOfferMorning()
 
     fun pendingRecruit(): Scene? {
         if (state.phase != "morning") return null
@@ -167,6 +172,7 @@ class HeartboundController(
         val next = if (state.phase == "morning") state.copy(phase = "evening", actionsLeft = state.eveningCap()) else state
         commit(next)
         screen = HbScreen.Evening
+        maybeOfferRival()
     }
 
     fun availableQuests(): List<QuestDef> = Heartbound.quests.filter { it.minDay <= state.day }
@@ -194,7 +200,17 @@ class HeartboundController(
         screen = HbScreen.Result
         return true
     }
-    fun dismissResult() { screen = HbScreen.Evening }
+    fun dismissResult() {
+        screen = HbScreen.Evening
+        maybeOfferRival()
+    }
+
+    private fun maybeOfferRival() {
+        if (pendingGroup() != null) return
+        if (state.heroes.values.any { it.injuredDays > 0 && canCare(it.id) }) return
+        val scn = pendingRival() ?: return
+        openScene(scn, "rival", scn.heroId)
+    }
 
     fun buy(id: String): Boolean {
         val gift = Heartbound.gift[id]; val gear = Heartbound.gearById[id]
@@ -249,13 +265,15 @@ class HeartboundController(
             lovedGifts = loved,
         )
         commit(s)
+        lastFocus = heroId
         openScene(Story.giftLines(def, gift, delta), "gift", heroId)
         return true
     }
 
     fun startTalk(heroId: String): Boolean {
         if (state.actionsLeft <= 0 || !state.h(heroId).recruited) return false
-        val ev = Story.eventFor(heroId, state.h(heroId).affection, state.h(heroId).seenEvents)
+        lastFocus = heroId
+        val ev = Story.eventFor(heroId, state)
         if (ev != null) { openScene(ev, "event", heroId); return true }
         val options = Story.talksFor(heroId)
         val unseen = options.filter { it.id !in state.seenTalks }
@@ -265,14 +283,36 @@ class HeartboundController(
     }
     fun startDate(heroId: String): Boolean {
         if (state.actionsLeft <= 0 || state.h(heroId).affection < Heartbound.DATE_MIN) return false
+        lastFocus = heroId
         openScene(Story.dateFor(heroId), "date", heroId)
         return true
     }
+
+    fun canCare(heroId: String) =
+        state.h(heroId).recruited && state.h(heroId).injuredDays > 0 && "cared_${heroId}_${state.day}" !in state.flags
+
+    fun startCare(heroId: String): Boolean {
+        if (!canCare(heroId)) return false
+        openScene(Arc.careFor(heroId), "care", heroId)
+        return true
+    }
+
+    fun pendingGroup() = Arc.pendingGroup(state)
+    fun openCompanionPick() { if (pendingGroup() != null) screen = HbScreen.CompanionPick }
+    fun chooseCompanion(heroId: String) {
+        val ev = pendingGroup() ?: return
+        if (!state.h(heroId).recruited) return
+        lastFocus = heroId
+        openScene(Arc.groupScene(ev.id, heroId), "group", heroId)
+    }
+
+    fun pendingRival() = Arc.pendingRival(state)
 
     private fun openScene(scene: Scene, kind: String, heroId: String?) {
         play = ScenePlay(scene, kind, heroId)
         logCurrent()
         screen = HbScreen.Dialogue
+        skipDisabledFade()
     }
 
     fun currentLine(): Line? {
@@ -289,7 +329,7 @@ class HeartboundController(
     fun choices(): List<Pair<Choice, Boolean>> {
         val p = play ?: return emptyList()
         if (!p.awaitingChoice) return emptyList()
-        return p.scene.choices.map { it.copy(text = Voice.apply(it.text, state.player)) to Story.unlocked(it, state.player) }
+        return p.scene.choices.map { it.copy(text = Voice.apply(it.text, state.player)) to Story.unlocked(it, state, p.heroId) }
     }
 
     private fun logCurrent() {
@@ -305,13 +345,32 @@ class HeartboundController(
         if (p.awaitingChoice) return
         lineId()?.let { markSeen(it) }
         if (p.followup.isNotEmpty()) {
-            if (p.followIndex < p.followup.lastIndex) { play = p.copy(followIndex = p.followIndex + 1); logCurrent() }
+            if (p.followIndex < p.followup.lastIndex) { play = p.copy(followIndex = p.followIndex + 1); logCurrent(); skipDisabledFade() }
             else finishScene()
             return
         }
-        if (p.lineIndex < p.scene.lines.lastIndex) { play = p.copy(lineIndex = p.lineIndex + 1); logCurrent() }
+        if (p.lineIndex < p.scene.lines.lastIndex) { play = p.copy(lineIndex = p.lineIndex + 1); logCurrent(); skipDisabledFade() }
         else if (p.scene.choices.isNotEmpty()) play = p.copy(awaitingChoice = true)
         else finishScene()
+    }
+
+    /** When fade-to-black is off, skip cutaway lines entirely. */
+    private fun skipDisabledFade() {
+        if (settings.fadeToBlack) return
+        var guard = 0
+        while (guard++ < 16 && play != null && currentLine()?.fade == true && !showingChoices()) {
+            val p = play ?: return
+            if (p.followup.isNotEmpty()) {
+                if (p.followIndex < p.followup.lastIndex) { play = p.copy(followIndex = p.followIndex + 1); logCurrent() }
+                else { finishScene(); return }
+            } else if (p.lineIndex < p.scene.lines.lastIndex) {
+                play = p.copy(lineIndex = p.lineIndex + 1); logCurrent()
+            } else if (p.scene.choices.isNotEmpty()) {
+                play = p.copy(awaitingChoice = true)
+            } else {
+                finishScene(); return
+            }
+        }
     }
 
     /** Jump through already-seen lines when skip-seen is on, stopping at new text or choices. */
@@ -332,7 +391,7 @@ class HeartboundController(
         val c = p.scene.choices.getOrNull(index) ?: return
         if (!Story.unlocked(c, state.player)) return
         val n = p.copy(awaitingChoice = false, pendingDelta = c.delta, pendingFlag = c.flag, pendingRecruit = c.recruit, pendingGain = c.gain, followup = c.next, followIndex = 0)
-        if (c.next.isNotEmpty()) { play = n; logCurrent() } else { play = n; finishScene() }
+        if (c.next.isNotEmpty()) { play = n; logCurrent(); skipDisabledFade() } else { play = n; finishScene() }
     }
 
     fun finishScene() {
@@ -342,12 +401,26 @@ class HeartboundController(
         if (hid != null && p.pendingDelta != 0 && s.heroes[hid] != null) {
             s = s.copy(heroes = s.heroes + (hid to HeartboundLogic.addAff(s.h(hid), p.pendingDelta)))
         }
-        if (p.pendingFlag != null) s = s.copy(flags = s.flags + p.pendingFlag!!)
+        if (p.pendingFlag != null) {
+            val f = p.pendingFlag!!
+            s = s.copy(flags = s.flags + f)
+            if (f.endsWith("_confess") && s.world.route == null) {
+                s = s.copy(world = s.world.copy(route = f.removeSuffix("_confess")))
+            }
+            if (f == "plot_ch1_done") s = s.copy(world = s.world.copy(chapter = maxOf(s.world.chapter, 1)))
+        }
         if (p.pendingGain != null) s = s.copy(player = s.player.gain(p.pendingGain!!))
         if (p.pendingRecruit && hid != null) {
             s = s.copy(heroes = s.heroes + (hid to s.h(hid).copy(recruited = true, affection = maxOf(s.h(hid).affection, 6))))
         }
         if (p.kind == "recruit" && hid != null) s = s.copy(flags = s.flags + "offered_${hid}_${s.day}")
+        if (p.kind == "group") {
+            val evId = Arc.groupsCalendar.firstOrNull { p.scene.id.startsWith(it.id + "_") }?.id
+            if (evId != null) s = s.copy(flags = s.flags + "event_$evId")
+        }
+        if (p.kind == "care" && hid != null) s = s.copy(flags = s.flags + "cared_${hid}_${s.day}")
+        if (p.kind == "jealousy") s = s.copy(flags = s.flags + p.scene.id + "jealous_day_${s.day}")
+        if (p.kind == "rival") s = s.copy(flags = s.flags + (p.pendingFlag ?: p.scene.id))
         when (p.kind) {
             "event" -> if (hid != null) {
                 val h = s.h(hid)
@@ -358,10 +431,23 @@ class HeartboundController(
         commit(s)
         play = null
         screen = when (p.kind) {
-            "intro", "recruit" -> HbScreen.Home
+            "intro", "recruit", "plot" -> HbScreen.Home
             else -> HbScreen.Evening
         }
-        if (p.kind == "recruit") maybeOfferRecruit()
+        if (p.kind == "recruit" || p.kind == "plot") maybeOfferMorning()
+        if (p.kind in setOf("event", "date", "gift", "group") && screen == HbScreen.Evening) maybeOfferJealousy()
+    }
+
+    private fun maybeOfferJealousy() {
+        if (state.phase != "evening" || screen != HbScreen.Evening) return
+        if ("jealous_day_${state.day}" in state.flags) return
+        val a = lastFocus ?: return
+        val rival = state.recruited().filter { it.id != a && it.affection >= 40 }.maxByOrNull { it.affection } ?: return
+        val id = "jealous_${rival.id}_of_$a"
+        if (id in state.flags) return
+        val scn = Arc.jealousy(rival.id, a)
+        commit(state.copy(flags = state.flags + id + "jealous_day_${state.day}"), toastNew = false)
+        openScene(scn, "jealousy", rival.id)
     }
 
     fun turnIn() {
@@ -378,10 +464,15 @@ class HeartboundController(
     fun dismissSummary() {
         commit(state.copy(report = null), toastNew = false)
         screen = HbScreen.Home
-        maybeOfferRecruit()
+        maybeOfferMorning()
     }
 
-    fun isNight(): Boolean = state.phase == "evening" || screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift")
+    fun isNight(): Boolean {
+        val bg = play?.scene?.bg
+        if (bg in setOf("festival", "harvest", "chapel")) return true
+        if (bg == "beach") return false
+        return state.phase == "evening" || (screen == HbScreen.Dialogue && play?.kind in setOf("talk", "date", "event", "gift", "group", "care", "jealousy", "rival", "plot"))
+    }
 
     fun jumpHome(s: GameState = state) {
         started = true
@@ -396,4 +487,11 @@ class HeartboundController(
         screen = HbScreen.Dialogue
     }
     fun jumpScreen(s: HbScreen) { screen = s }
+    fun jumpFade(scene: Scene) {
+        val fade = scene.choices.firstOrNull { ch -> ch.next.any { it.fade } }?.next?.last { it.fade } ?: return
+        started = true
+        openScene(scene, "event", scene.heroId)
+        play = play?.copy(followup = listOf(fade), followIndex = 0, awaitingChoice = false)
+        screen = HbScreen.Dialogue
+    }
 }
