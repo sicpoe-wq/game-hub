@@ -69,6 +69,7 @@ data class GameState(
     val staff: Set<String> = emptySet(),
     val decor: Set<String> = emptySet(),
     val roomDecor: Map<String, Set<String>> = emptyMap(),
+    val gallery: Set<String> = emptySet(),
 ) {
     fun h(id: String) = heroes.getValue(id)
     fun recruited() = Heartbound.heroes.map { h(it.id) }.filter { it.recruited }

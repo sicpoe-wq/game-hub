@@ -36,7 +36,7 @@ data class Player(
 }
 
 data class Achievement(val id: String, val title: String, val desc: String)
-data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true, val autoBattle: Boolean = false) {
+data class HbSettings(val textSpeed: Int = 2, val skipSeen: Boolean = false, val fadeToBlack: Boolean = true, val autoBattle: Boolean = false, val musicVol: Int = 8, val sfxVol: Int = 8, val muted: Boolean = false) {
     /** 0 = instant, 1 = fast, 2 = normal, 3 = slow */
     fun delayMs() = when (textSpeed) { 0 -> 0; 1 -> 8; 2 -> 16; else -> 28 }
     fun speedLabel() = when (textSpeed) { 0 -> "Instant"; 1 -> "Fast"; 2 -> "Normal"; else -> "Slow" }
@@ -118,6 +118,7 @@ object Content {
         Achievement("hired_hands", "Hired Hands", "Hire someone to keep the hall."),
         Achievement("the_hall_endures", "The Hall Endures", "See the hall's own ending."),
         Achievement("iron_and_light", "Iron and Light", "Stand through rivals and the Covenant both."),
+        Achievement("a_kept_picture", "A Kept Picture", "Unlock a moment in the gallery."),
     )
     val achById = achievements.associateBy { it.id }
 
@@ -206,6 +207,7 @@ object Ach {
         if (s.staff.isNotEmpty()) add("hired_hands")
         if ("ending_hall" in s.flags || "ending_quiet" in s.flags || "ending_lanterns" in s.flags) add("the_hall_endures")
         if ("ending_iron_light" in s.flags) add("iron_and_light")
+        if (s.gallery.isNotEmpty()) add("a_kept_picture")
         return have
     }
 }

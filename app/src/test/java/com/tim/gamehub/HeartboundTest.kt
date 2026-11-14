@@ -660,4 +660,43 @@ T|kael_t1
         assertEquals("ending_hall", end?.id)
     }
 
+
+    @Test fun galleryUnlocksOnPlotAndSurvivesSave() {
+        val c = HeartboundController(MemorySave(), instantText = true)
+        c.newGame()
+        val scene = Story.eventById("plot_letter")!!
+        c.jumpDialogue(scene, "plot")
+        assertTrue("plot_letter" in c.state.gallery)
+        assertEquals("plot_letter", c.cgView)
+        c.dismissCg()
+        assertNull(c.cgView)
+        val back = HeartboundSave.decode(HeartboundSave.encode(c.state))
+        assertEquals(c.state.gallery, back.gallery)
+        assertTrue(HeartboundSave.decode(HeartboundSave.encode(game())).gallery.isEmpty())
+    }
+
+    @Test fun confessionChoiceRevealsCgAndSettingsPersist() {
+        val store = MemorySave()
+        val c = HeartboundController(store, instantText = true)
+        c.newGame()
+        val scene = Story.eventById("kael_confess")!!
+        c.jumpDialogue(scene, "event", showChoices = true)
+        assertTrue("kael_confess" !in c.state.gallery)
+        assertNull(c.cgView)
+        c.choose(0)
+        assertTrue("kael_confess" in c.state.gallery)
+        assertEquals("kael_confess", c.cgView)
+        c.setMusicVol(3); c.setSfxVol(1); c.setMuted(true)
+        assertEquals(3, store.settings.musicVol)
+        assertEquals(1, store.settings.sfxVol)
+        assertTrue(store.settings.muted)
+        assertEquals("battle", HbSound.themeFor(HbScreen.Battle, null))
+        assertEquals("evening", HbSound.themeFor(HbScreen.Evening, null))
+        assertEquals("ending", HbSound.themeFor(HbScreen.Dialogue, c.play?.copy(kind = "ending")))
+        c.dismissCg()
+        c.openGallery()
+        assertEquals(HbScreen.Gallery, c.screen)
+    }
+
+
 }

@@ -31,6 +31,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -57,12 +59,20 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     val ctx = LocalContext.current
     val c = remember(controller) { controller ?: HeartboundController(PrefsSave(ctx), instantText = instantText) }
     val instant = instantText || c.instantText
+    DisposableEffect(instant) {
+        if (!instant) HbSound.attach(ctx)
+        onDispose { if (!instant) HbSound.detach() }
+    }
+    LaunchedEffect(c.screen, c.play?.scene?.id, c.play?.kind, c.settings) {
+        if (!instant) HbSound.cue(c.settings, c.screen, c.play)
+    }
     BackHandler {
+        if (c.cgView != null) { c.dismissCg(); return@BackHandler }
         when (c.screen) {
             HbScreen.Title -> onExit()
             HbScreen.Home, HbScreen.Evening -> c.backToTitle()
             HbScreen.Dialogue -> if (c.showingChoices()) { /* wait */ } else c.advance()
-            HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log, HbScreen.Hall, HbScreen.Town, HbScreen.Craft, HbScreen.Merchant -> c.closeMenu()
+            HbScreen.Create, HbScreen.Slots, HbScreen.Settings, HbScreen.Journal, HbScreen.Trophies, HbScreen.Log, HbScreen.Hall, HbScreen.Town, HbScreen.Craft, HbScreen.Merchant, HbScreen.Gallery -> c.closeMenu()
             is HbScreen.DateMap -> c.goHome()
             HbScreen.CompanionPick -> c.goHome()
             HbScreen.Summary -> c.dismissSummary()
@@ -97,7 +107,9 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
             HbScreen.Craft -> CraftScreen(c)
             HbScreen.Merchant -> MerchantScreen(c)
             is HbScreen.DateMap -> DateMapScreen(c, s.heroId)
+            HbScreen.Gallery -> GalleryScreen(c)
         }
+        c.cgView?.let { CgOverlay(c, it) }
         c.toast?.let { msg ->
             LaunchedEffect(msg) { delay(1800); c.toast = null }
             Text(msg, color = Ink, fontSize = 14.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 18.dp)
@@ -214,7 +226,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     Text(text, color = Cream, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center,
         modifier = modifier.shadow(5.dp, Soft).background(bg, Soft)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp))
+            .clickable(enabled = enabled, onClick = { HbSound.tap(); onClick() }).padding(horizontal = 20.dp, vertical = 12.dp))
 }
 
 @Composable private fun Hearts(aff: Int, size: Int = 14) {
@@ -335,6 +347,9 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Pill("Journal", onClick = { c.openJournal() }, tag = "hb_btn_journal")
                         Pill("Achievements", onClick = { c.openTrophies() }, tag = "hb_btn_ach")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Pill("Gallery", onClick = { c.openGallery() }, tag = "hb_btn_gallery")
                         Pill("Settings", onClick = { c.openSettings() })
                     }
                     Pill("Rest today  ·  skip to evening", onClick = { c.openEvening() }, tag = "hb_btn_rest")
@@ -686,7 +701,7 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Text(ch.text + need, color = if (ok) Ink else Wood, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).shadow(4.dp, Soft)
                             .background(if (ok) Cream else Color(0xFFD7D0C8), Soft)
-                            .clickable(enabled = ok) { c.choose(i) }.padding(14.dp).testTag("hb_choice_$i"))
+                            .clickable(enabled = ok) { HbSound.tap(); c.choose(i) }.padding(14.dp).testTag("hb_choice_$i"))
                 }
             } else {
                 Box(Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(18.dp)).background(Night, RoundedCornerShape(18.dp))
@@ -794,10 +809,24 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     }
 }
 
+@Composable private fun VolumeRow(label: String, value: Int, tag: String, onChange: (Int) -> Unit) {
+    Column(Modifier.padding(vertical = 6.dp).testTag(tag)) {
+        Text(label, color = Cream, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
+            Pill("–", onClick = { onChange((value - 1).coerceAtLeast(0)) }, tag = "${tag}_down")
+            Box(Modifier.weight(1f).height(10.dp).background(Night, Soft)) {
+                Box(Modifier.fillMaxWidth(value / 10f).fillMaxHeight().background(Gold, Soft))
+            }
+            Text("$value", color = Gold, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
+            Pill("+", onClick = { onChange((value + 1).coerceAtMost(10)) }, tag = "${tag}_up")
+        }
+    }
+}
+
 @Composable private fun SettingsScreen(c: HeartboundController) {
     Box(Modifier.fillMaxSize().testTag("hb_settings_screen")) {
         Bg("guild", 0.45f, night = c.state.phase == "evening")
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
             Text("Settings", color = Gold, fontWeight = FontWeight.Black, fontSize = 22.sp)
             Spacer(Modifier.height(16.dp))
             Text("Text speed", color = Cream, fontWeight = FontWeight.Bold)
@@ -833,6 +862,17 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
                     Text("Watch fights play themselves. Turn this off to choose every skill. You can also switch in the middle of a fight.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.setMuted(!c.settings.muted) }.testTag("hb_mute")) {
+                Text(if (c.settings.muted) "●" else "○", color = Gold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Mute audio", color = Cream, fontWeight = FontWeight.Bold)
+                    Text("Silence music and sound effects.", color = Cream.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
+            VolumeRow("Music volume", c.settings.musicVol, "hb_music_vol") { c.setMusicVol(it) }
+            VolumeRow("Sound effects", c.settings.sfxVol, "hb_sfx_vol") { c.setSfxVol(it) }
             Spacer(Modifier.height(24.dp))
             Pill("‹  Back", onClick = { c.closeMenu() })
         }
@@ -1291,3 +1331,45 @@ fun HeartboundGame(onExit: () -> Unit, controller: HeartboundController? = null,
     }
 }
 
+@Composable private fun GalleryScreen(c: HeartboundController) {
+    val seen = c.state.gallery
+    Box(Modifier.fillMaxSize().testTag("hb_gallery")) {
+        Bg("guild", 0.4f, night = c.state.phase == "evening")
+        Column(Modifier.fillMaxSize()) {
+            TopBar(c, {}, "Gallery", back = { c.closeMenu() })
+            Text("${seen.size} of ${Gallery.all.size} moments kept", color = Cream.copy(alpha = 0.85f), fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Gallery.all.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { cg ->
+                            val unlocked = cg.id in seen
+                            Column(Modifier.weight(1f).shadow(4.dp, Soft).background(Night, Soft).clickable(enabled = unlocked) { c.openCg(cg.id) }
+                                .padding(6.dp).testTag("hb_cg_${cg.id}")) {
+                                Image(
+                                    painterResource(cg.drawable), if (unlocked) cg.title else "Locked",
+                                    Modifier.fillMaxWidth().aspectRatio(9f / 16f).clip(Soft),
+                                    contentScale = ContentScale.Crop,
+                                    colorFilter = if (unlocked) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                                    alpha = if (unlocked) 1f else 0.35f,
+                                )
+                                Text(if (unlocked) cg.title else "Not yet seen", color = if (unlocked) Gold else Cream.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp, bottom = 4.dp))
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun CgOverlay(c: HeartboundController, id: String) {
+    val def = Gallery.byId[id] ?: return
+    Box(Modifier.fillMaxSize().background(Color.Black).clickable { c.dismissCg() }.testTag("hb_cg")) {
+        Image(painterResource(def.drawable), def.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xAA140C0A)).padding(16.dp, 12.dp)) {
+            Text(def.title, color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("Tap to close", color = Cream.copy(alpha = 0.8f), fontSize = 12.sp)
+        }
+    }
+}

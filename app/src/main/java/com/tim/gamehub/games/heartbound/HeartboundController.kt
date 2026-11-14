@@ -31,6 +31,7 @@ sealed class HbScreen {
     data object Craft : HbScreen()
     data object Merchant : HbScreen()
     data class DateMap(val heroId: String) : HbScreen()
+    data object Gallery : HbScreen()
 }
 
 data class ScenePlay(
@@ -45,6 +46,7 @@ data class ScenePlay(
     val pendingFlag: String? = null,
     val pendingRecruit: Boolean = false,
     val pendingGain: String? = null,
+    val cgOffered: Boolean = false,
 )
 
 class HeartboundController(
@@ -71,6 +73,7 @@ class HeartboundController(
     var settings by mutableStateOf(store.settings)
     var lastFocus by mutableStateOf<String?>(null)
     var battle by mutableStateOf<BattleState?>(null)
+    var cgView by mutableStateOf<String?>(null)
 
     val hasSave get() = (0 until store.slotCount).any { store.slot(it) != null }
 
@@ -87,6 +90,7 @@ class HeartboundController(
         if (toastNew && fresh.isNotEmpty()) {
             val a = Content.achById[fresh.first()]
             if (a != null) toast = "Achievement: ${a.title}"
+            HbSound.sfx("ach", settings)
         }
     }
 
@@ -129,6 +133,27 @@ class HeartboundController(
         settings = settings.copy(autoBattle = v)
         store.settings = settings
         battle = battle?.copy(auto = v)
+    }
+    fun setMusicVol(n: Int) { settings = settings.copy(musicVol = n.coerceIn(0, 10)); store.settings = settings }
+    fun setSfxVol(n: Int) { settings = settings.copy(sfxVol = n.coerceIn(0, 10)); store.settings = settings }
+    fun setMuted(v: Boolean) { settings = settings.copy(muted = v); store.settings = settings }
+    fun openGallery() { returnTo = screen; screen = HbScreen.Gallery }
+    fun openCg(id: String) { if (id in state.gallery) cgView = id }
+    fun dismissCg() { cgView = null }
+    fun offerCg(show: Boolean = true) {
+        val p = play ?: return
+        val def = Gallery.byScene[p.scene.id] ?: return
+        if (def.id !in state.gallery) commit(state.copy(gallery = state.gallery + def.id), toastNew = true)
+        if (show && !p.cgOffered) {
+            cgView = def.id
+            play = p.copy(cgOffered = true)
+        }
+    }
+    fun jumpCg(id: String) {
+        started = true
+        if (id !in state.gallery) commit(state.copy(gallery = state.gallery + id), toastNew = false)
+        cgView = id
+        if (screen == HbScreen.Title) screen = HbScreen.Home
     }
     fun markSeen(id: String) { store.seenLines = store.seenLines + id }
     fun isSeen(id: String) = id in store.seenLines
@@ -246,6 +271,7 @@ class HeartboundController(
         val b = battle ?: return
         if (b.finished) { finishBattle(); return }
         battle = Battle.autoStep(state, b)
+        sfxBattle(b, battle)
     }
 
     fun playerAct(skillId: String, targetId: String?) {
@@ -253,6 +279,18 @@ class HeartboundController(
         if (b.finished || b.auto) return
         val skill = Battle.skills[skillId] ?: return
         battle = Battle.act(b, skill, targetId, state)
+        sfxBattle(b, battle)
+    }
+
+    private fun sfxBattle(before: BattleState, after: BattleState?) {
+        if (after == null) return
+        val prev = before.fighters.associate { it.id to it.hp }
+        val healed = after.fighters.any { (prev[it.id] ?: it.hp) < it.hp }
+        val hurt = after.fighters.any { (prev[it.id] ?: it.hp) > it.hp }
+        when {
+            healed -> HbSound.sfx("heal", settings)
+            hurt -> HbSound.sfx("hit", settings)
+        }
     }
 
     fun toggleBattleAuto() { setAutoBattle(!(battle?.auto ?: settings.autoBattle)) }
@@ -271,6 +309,7 @@ class HeartboundController(
         if (b.usedCombo) next = next.copy(flags = next.flags + "used_combo")
         battle = null
         commit(next)
+        if (next.lastResult?.leveled?.isNotEmpty() == true) HbSound.sfx("level", settings)
         screen = HbScreen.Result
     }
 
@@ -414,6 +453,7 @@ class HeartboundController(
         )
         commit(s)
         lastFocus = heroId
+        HbSound.sfx("gift", settings)
         openScene(Life.rareGiftScene(def, gift, delta) ?: Story.giftLines(def, gift, delta), "gift", heroId)
         return true
     }
@@ -468,6 +508,7 @@ class HeartboundController(
         logCurrent()
         screen = HbScreen.Dialogue
         skipDisabledFade()
+        if (Gallery.shouldShowAtStart(scene.id)) offerCg(show = true)
     }
 
     fun currentLine(): Line? {
@@ -546,11 +587,13 @@ class HeartboundController(
         val c = p.scene.choices.getOrNull(index) ?: return
         if (!Story.unlocked(c, state.player)) return
         val n = p.copy(awaitingChoice = false, pendingDelta = c.delta, pendingFlag = c.flag, pendingRecruit = c.recruit, pendingGain = c.gain, followup = c.next, followIndex = 0)
-        if (c.next.isNotEmpty()) { play = n; logCurrent(); skipDisabledFade() } else { play = n; finishScene() }
+        if (c.next.isNotEmpty()) { play = n; logCurrent(); skipDisabledFade() } else { play = n; finishScene(); return }
+        offerCg(show = true)
     }
 
     fun finishScene() {
         val p = play ?: return
+        offerCg(show = false)
         var s = state
         val hid = p.heroId
         if (hid != null && p.pendingDelta != 0 && s.heroes[hid] != null) {

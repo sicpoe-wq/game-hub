@@ -49,8 +49,11 @@ class PrefsSave(ctx: android.content.Context) : SaveStore {
         ed.apply()
     }
     override var settings: HbSettings
-        get() = HbSettings(p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true), p.getBoolean("auto_battle", false))
-        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).putBoolean("auto_battle", v.autoBattle).apply() }
+        get() = HbSettings(
+            p.getInt("text_speed", 2), p.getBoolean("skip_seen", false), p.getBoolean("fade_to_black", true), p.getBoolean("auto_battle", false),
+            p.getInt("music_vol", 8), p.getInt("sfx_vol", 8), p.getBoolean("muted", false),
+        )
+        set(v) { p.edit().putInt("text_speed", v.textSpeed).putBoolean("skip_seen", v.skipSeen).putBoolean("fade_to_black", v.fadeToBlack).putBoolean("auto_battle", v.autoBattle).putInt("music_vol", v.musicVol).putInt("sfx_vol", v.sfxVol).putBoolean("muted", v.muted).apply() }
     override var seenLines: Set<String>
         get() = p.getString("seen_lines", "")!!.split(",").filter { it.isNotBlank() }.toSet()
         set(v) { p.edit().putString("seen_lines", v.joinToString(",")).apply() }
@@ -88,6 +91,7 @@ object HeartboundSave {
         if (s.staff.isNotEmpty()) append("S|${s.staff.joinToString(",")}\n")
         if (s.decor.isNotEmpty()) append("D|${s.decor.joinToString(",")}\n")
         s.roomDecor.forEach { (id, items) -> if (items.isNotEmpty()) append("N|$id|${items.joinToString(",")}\n") }
+        if (s.gallery.isNotEmpty()) append("L|${s.gallery.joinToString(",")}\n")
         s.lastResult?.let { r ->
             append("R|${r.questId}|${if (r.success) 1 else 0}|${r.chance}|${r.roll}|${r.gold}|${r.xp}|${r.leveled.joinToString(",")}|${r.injuredId ?: ""}|${r.injuryDays}|${r.loot ?: ""}|${esc(r.note)}\n")
         }
@@ -101,6 +105,7 @@ object HeartboundSave {
         val staff = mutableSetOf<String>()
         val decor = mutableSetOf<String>()
         val roomDecor = mutableMapOf<String, Set<String>>()
+        val gallery = mutableSetOf<String>()
         val heroes = Heartbound.heroes.associate { it.id to HeroState(it.id) }.toMutableMap()
         val inv = mutableMapOf<String, Int>()
         val flags = mutableSetOf<String>()
@@ -172,6 +177,8 @@ object HeartboundSave {
             else if (line.startsWith("N|")) {
                 val p = line.split("|")
                 roomDecor[p[1]] = p.getOrElse(2) { "" }.split(",").filter { it.isNotBlank() }.toSet()
+            } else if (line.startsWith("L|")) {
+                gallery += line.removePrefix("L|").split(",").filter { it.isNotBlank() }
             } else if (line.startsWith("X|")) {
                 val p = line.split("|")
                 expedition = Expedition(
@@ -193,7 +200,7 @@ object HeartboundSave {
                 )
             }
         }
-        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor, rep, expedition, forge, library, garden, stables, staff, decor, roomDecor)
+        return GameState(day, gold, phase, act, rooms, train, tavern, heroes, inv, flags, talks, result, player, ach, log, report, gifts, loved, world, anchor, rep, expedition, forge, library, garden, stables, staff, decor, roomDecor, gallery)
     }
 
     fun preview(raw: String?): SlotInfo? {

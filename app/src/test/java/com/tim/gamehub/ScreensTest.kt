@@ -77,7 +77,7 @@ class ScreensTest {
         jumpHome(state.copy(day = 6, phase = "evening", actionsLeft = 2))
         openCompanionPick()
     }
-    @Test fun heartbound_plot() = hb { jumpDialogue(Arc.plot.first(), "plot", line = 2) }
+    @Test fun heartbound_plot() = hb { jumpDialogue(Arc.plot.first(), "plot", line = 2); dismissCg(); toast = null }
     @Test fun heartbound_confess() = hb {
         jumpHome(state.copy(phase = "evening", heroes = state.heroes + ("kael" to state.h("kael").copy(affection = 85))))
         jumpDialogue(Story.eventById("kael_confess")!!, "event", line = 3)
@@ -113,4 +113,14 @@ class ScreensTest {
             heroes = state.heroes + ("nim" to state.h("nim").copy(recruited = true, affection = 24, level = 2))))
         jumpDialogue(Life.romance.first(), "event", line = 1)
     }
+
+
+    @Test fun heartbound_cg() = hb {
+        jumpCg("kael_confess")
+    }
+    @Test fun heartbound_gallery() = hb {
+        jumpHome(state.copy(gallery = setOf("kael_confess", "mira_confess", "plot_letter", "ending_hall")))
+        openGallery()
+    }
+
 }
