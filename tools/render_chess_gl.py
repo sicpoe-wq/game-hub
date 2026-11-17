@@ -12,7 +12,7 @@ import moderngl
 REPO = Path("/workspace/gamehub")
 DRAW = REPO / "app/src/main/res/drawable"
 PRIV = REPO / "app/src/private/res/drawable"
-OUT = Path("/workspace/gamehub-v2.2-shots")
+OUT = Path("/workspace/gamehub-v2.3-shots")
 OUT.mkdir(exist_ok=True)
 
 VS = """
@@ -405,6 +405,21 @@ class Renderer:
         self.vaos[key]=vao
         return vao
 
+
+    def _disc_mesh(self, segs=24):
+        if getattr(self, "_disc", None) is not None:
+            return self._disc
+        pos=[]; nrm=[]; uv=[]; idx=[]
+        pos += [0,0,0]; nrm += [0,1,0]; uv += [0.5,0.5]
+        for i in range(segs+1):
+            a=2*math.pi*i/segs
+            x,z=math.cos(a), math.sin(a)
+            pos += [x,0,z]; nrm += [0,1,0]; uv += [0.5+0.5*x, 0.5+0.5*z]
+            if i>0:
+                idx += [0, i, i+1] if i<segs else [0, i, 1]
+        self._disc=(np.array(pos,np.float32),np.array(nrm,np.float32),np.array(uv,np.float32),np.array(idx,np.int32))
+        return self._disc
+
     def draw(self, key, model, vp, tex, color=(1,1,1,1), amb=0.4, spec=0.3, use_tex=True, cut=0.02, emit=0.0, unlit=False, mesh=None):
         mvp = vp @ model
         # normal matrix: inverse transpose of upper 3x3
@@ -425,20 +440,26 @@ class Renderer:
         self.prog["uTex"].value=0
         self.vao(key, mesh).render()
 
-    def render_scene(self, board="wood", pieces="staunton", political=False, likeness=False):
+    def render_scene(self, board="wood", pieces="staunton", political=False, likeness=False,
+                      cam=None, only_sq=None):
         self.fbo.use(); self.ctx.clear(0.05,0.05,0.07,1.0)
         self.ctx.enable(moderngl.DEPTH_TEST)
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
         yaw,pitch,dist=0.42,0.72,11.5
         target=np.array([4,0.25,4],np.float32)
+        fov=0.95
+        if cam:
+            yaw=cam.get("yaw", yaw); pitch=cam.get("pitch", pitch); dist=cam.get("dist", dist)
+            target=np.array(cam.get("target", target), np.float32)
+            fov=cam.get("fov", fov)
         eye=np.array([
             target[0]+math.sin(yaw)*math.cos(pitch)*dist,
             target[1]+math.sin(pitch)*dist,
             target[2]+math.cos(yaw)*math.cos(pitch)*dist,
         ],np.float32)
         view=mat_look(eye,target)
-        proj=mat_persp(0.95, self.w/self.h, 0.2, 80)
+        proj=mat_persp(fov, self.w/self.h, 0.2, 80)
         vp=proj@view
         light=norm(np.array([0.45,0.82,0.35],np.float32))
         self.prog["uLight"].value=tuple(light)
@@ -512,6 +533,7 @@ class Renderer:
         self.ctx.disable(moderngl.CULL_FACE)
         for sq,pc in enumerate(b):
             if not pc: continue
+            if only_sq is not None and sq not in only_sq: continue
             kind, side = pc
             kind=kind.upper()
             f,r=sq%8, sq//8
@@ -526,11 +548,14 @@ class Renderer:
                 tex=self.load_tex(style+fig, repeat=False, folder=folder) if fig else self.white
                 eye_xz=np.array([eye[0]-world[0], eye[2]-world[2]])
                 yaw=math.atan2(eye_xz[0], eye_xz[1]) + math.pi
-                hmap={"K":1.28,"Q":1.20,"R":1.10,"B":1.12,"N":1.05,"P":0.98}
-                # card is height 1.10; scale y
+                hmap={"K":1.36,"Q":1.26,"R":1.16,"B":1.24,"N":1.18,"P":1.02}
+                wsc=0.66/0.62
                 sc=hmap[kind]/1.10
-                model=mat_t(world[0], world[1]+0.18, world[2]) @ mat_ry(yaw) @ mat_s(1,sc,1)
-                self.draw("card", model, vp, tex, (1,1,1,1), amb=0.45, spec=0.12, cut=0.12)
+                # party ring on the shared 3D base
+                ringm=mat_t(world[0], world[1]+0.055, world[2]) @ mat_s(0.30, 0.02, 0.30)
+                self.draw("ring", ringm, vp, self.white, ring, amb=0.5, spec=0.15, use_tex=False, emit=0.05, mesh=self._disc_mesh())
+                model=mat_t(world[0], world[1]+0.18, world[2]) @ mat_ry(yaw) @ mat_s(wsc,sc,1)
+                self.draw("card", model, vp, tex, (1,1,1,1), amb=0.72, spec=0.06, cut=0.10)
             else:
                 model=mat_t(*world)
                 if side=="B":
@@ -588,20 +613,91 @@ def chrome(board_im, title_right="3D"):
     pill(W-pad-140, H-140, 140, 72, "Hub")
     return bg.resize((461,1000), Image.Resampling.LANCZOS)
 
+def contact_sheet(tiles, labels, cols=6, cell=320):
+    rows = (len(tiles)+cols-1)//cols
+    pad, label_h = 16, 36
+    W = cols*(cell+pad)+pad
+    H = rows*(cell+label_h+pad)+pad
+    sheet=Image.new("RGB",(W,H),(22,22,28))
+    d=ImageDraw.Draw(sheet)
+    try:
+        font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+    except Exception:
+        font=ImageFont.load_default()
+    for i,(im,lab) in enumerate(zip(tiles,labels)):
+        # letterbox into cell
+        im=im.convert("RGB")
+        sc=min(cell/im.width, cell/im.height)
+        nw,nh=int(im.width*sc), int(im.height*sc)
+        im=im.resize((nw,nh), Image.Resampling.LANCZOS)
+        c,r=i%cols, i//cols
+        x=pad+c*(cell+pad)+(cell-nw)//2
+        y=pad+r*(cell+label_h+pad)+(cell-nh)//2
+        sheet.paste(im,(x,y))
+        bbox=d.textbbox((0,0),lab,font=font)
+        tw=bbox[2]-bbox[0]
+        d.text((pad+c*(cell+pad)+(cell-tw)/2, pad+r*(cell+label_h+pad)+cell+4), lab, font=font, fill=(230,230,235))
+    return sheet
+
 def main():
     r=Renderer(1080,1080, samples=4)
-    shots=[
-        ("chess_3d_wood_study.png", dict(board="wood", pieces="staunton", political=False)),
-        ("chess_3d_neon_skyline.png", dict(board="neon", pieces="neon", political=False)),
-        ("chess_3d_parody.png", dict(board="wood", pieces="political_parody", political=True, likeness=False)),
-        ("chess_3d_likeness.png", dict(board="wood", pieces="political_likeness", political=True, likeness=True)),
+    # full 3D likeness board in the Oval Office
+    im=r.render_scene(board="wood", pieces="political_likeness", political=True, likeness=True)
+    dest=OUT/"chess_3d_likeness.png"
+    chrome(im).save(dest)
+    im.save(OUT/"chess_3d_likeness_raw.png")
+    print("wrote", dest, dest.stat().st_size, flush=True)
+
+    # close-ups of each side's first two ranks (K/Q/R/B/N + pawns readable)
+    # White lives on ranks 1-2 (z ~ 0.5-1.5); camera from the south (low z).
+    cam_w=dict(yaw=math.pi, pitch=0.42, dist=6.4, target=(4.0, 0.45, 1.15), fov=0.80)
+    imw=r.render_scene(board="wood", pieces="political_likeness", political=True, likeness=True, cam=cam_w)
+    dest=OUT/"chess_3d_likeness_gop_close.png"
+    chrome(imw, title_right="3D").save(dest)
+    imw.save(OUT/"chess_3d_likeness_gop_close_raw.png")
+    print("wrote", dest, dest.stat().st_size, flush=True)
+
+    # Black lives on ranks 7-8 (z ~ 6.5-7.5); camera from the north (high z).
+    cam_b=dict(yaw=0.0, pitch=0.42, dist=6.4, target=(4.0, 0.45, 6.85), fov=0.80)
+    imb=r.render_scene(board="wood", pieces="political_likeness", political=True, likeness=True, cam=cam_b)
+    dest=OUT/"chess_3d_likeness_dem_close.png"
+    chrome(imb, title_right="3D").save(dest)
+    imb.save(OUT/"chess_3d_likeness_dem_close_raw.png")
+    print("wrote", dest, dest.stat().st_size, flush=True)
+
+    # Per-piece-type contact: one king, queen, rook, bishop, knight, pawn per side.
+    # squares: W a1=R vance? starting: a1 rook, b1 knight, c1 bishop, d1 queen, e1 king, a2 pawn
+    # Check starting_figs and board.
+    picks = [
+        # (sq, label) — filled after we know starting_figs; hardcoded common start:
+        (4, "King  GOP  Trump"),      # e1
+        (3, "Queen  GOP  Melania"),   # d1
+        (0, "Rook  GOP  Vance"),      # a1
+        (2, "Bishop  GOP  Thune"),    # c1
+        (1, "Knight  GOP  Barrasso"), # b1
+        (8, "Pawn  GOP  Cruz"),       # a2
+        (60, "King  DEM  Jeffries"),  # e8
+        (59, "Queen  DEM  Clark"),    # d8
+        (56, "Rook  DEM  Schumer"),   # a8
+        (58, "Bishop  DEM  Newsom"),  # c8
+        (42, "Knight  DEM  Lieu"),    # c6 (moved from b8 in Ruy)
+        (48, "Pawn  DEM  AOC"),       # a7
     ]
-    for name, kw in shots:
-        im=r.render_scene(**kw)
-        framed=chrome(im)
-        dest=OUT/name
-        framed.save(dest)
-        print("wrote", dest, dest.stat().st_size, framed.size, flush=True)
+    cam_one=dict(yaw=0.15, pitch=0.28, dist=3.15, target=(0.5, 0.55, 0.5), fov=0.72)
+    tiles=[]; labels=[]
+    # render each selected piece by temporarily isolating it: place that
+    # square's piece onto e1-like world via only_sq, but camera is aimed at
+    # that square's world position.
+    for sq, lab in picks:
+        f, rk = sq%8, sq//8
+        cam=dict(yaw=0.18, pitch=0.32, dist=3.4, target=(f+0.5, 0.55, rk+0.5), fov=0.70)
+        tile=r.render_scene(board="wood", pieces="political_likeness", political=True, likeness=True,
+                            cam=cam, only_sq={sq})
+        tiles.append(tile); labels.append(lab)
+    sheet=contact_sheet(tiles, labels, cols=6, cell=420)
+    dest=OUT/"chess_3d_likeness_contact.png"
+    sheet.save(dest)
+    print("wrote", dest, dest.stat().st_size, sheet.size, flush=True)
 
 if __name__=="__main__":
     main()

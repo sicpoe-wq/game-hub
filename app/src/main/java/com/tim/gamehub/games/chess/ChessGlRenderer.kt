@@ -392,8 +392,8 @@ class ChessGlRenderer(private val ctx: Context) : GLSurfaceView.Renderer {
         // party ring
         val ringM = matTranslate(world.x, world.y + 0.055f, world.z) * matScale(0.30f, 0.02f, 0.30f)
         draw(mesh("disc24") { ChessMeshes.disc(1f, 0f, 24) }, ringM, vp, white, ring[0], ring[1], ring[2], 1f, amb = 0.5f, spec = 0.15f, useTex = false, cut = 0.02f, emit = 0.05f)
-        val h = when (kind) { Kind.K -> 1.28f; Kind.Q -> 1.20f; Kind.R -> 1.10f; Kind.B -> 1.12f; Kind.N -> 1.05f; Kind.P -> 0.98f }
-        val wid = 0.62f
+        val h = when (kind) { Kind.K -> 1.36f; Kind.Q -> 1.26f; Kind.R -> 1.16f; Kind.B -> 1.24f; Kind.N -> 1.18f; Kind.P -> 1.02f }
+        val wid = 0.66f
         val card = mesh("card") { ChessMeshes.curvedCard(wid, h, if (s.highQuality) 12 else 6, 0.32f) }
         val yaw = atan2(eye.x - world.x, eye.z - world.z) + PI.toFloat()
         val sway = if (s.idle) sin(time * 1.4f + (fig ?: "").hashCode() * 0.01f) * 0.05f else 0f
@@ -414,7 +414,7 @@ class ChessGlRenderer(private val ctx: Context) : GLSurfaceView.Renderer {
             if (kotlin.math.abs(c.x - world.x) < 0.1f && kotlin.math.abs(c.z - world.z) < 0.1f && kind == Kind.K)
                 emit = 0.4f * (0.5f + 0.5f * sin(time * 6f))
         }
-        draw(card, cm, vp, tid, 1f, 1f, 1f, 1f, amb = 0.45f, spec = 0.12f, useTex = true, cut = 0.12f, emit = emit)
+        draw(card, cm, vp, tid, 1f, 1f, 1f, 1f, amb = 0.72f, spec = 0.06f, useTex = true, cut = 0.10f, emit = emit)
     }
 
     private fun drawLetter(m: GpuMesh, vp: Mat4, atlas: Int, index: Int, x: Float, y: Float, z: Float, yaw: Float) {

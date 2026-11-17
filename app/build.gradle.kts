@@ -4,7 +4,7 @@ android {
   namespace = "com.tim.gamehub"; compileSdk = 35
   defaultConfig {
     applicationId = "com.tim.gamehub"
-    minSdk = 24; targetSdk = 35; versionCode = 13; versionName = "2.2"
+    minSdk = 24; targetSdk = 35; versionCode = 14; versionName = "2.3"
     buildConfigField("boolean", "POLITICAL_LIKENESS", if (likenessBuild) "true" else "false")
     if (likenessBuild) {
       applicationIdSuffix = ".private"
