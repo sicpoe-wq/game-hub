@@ -8,6 +8,7 @@ import app.cash.paparazzi.Paparazzi
 import com.tim.gamehub.games.wordsearch.WordSearchGame
 import com.tim.gamehub.games.heartbound.*
 import com.tim.gamehub.games.watersort.*
+import com.tim.gamehub.games.chess.*
 import org.junit.Rule
 import org.junit.Test
 class ScreensTest {
@@ -141,4 +142,23 @@ class ScreensTest {
     @Test fun heartbound_intro_logo() = hbTitle { jumpIntro(7000) }
     @Test fun heartbound_title() = hbTitle { jumpTitleMenu() }
 
+    private fun ch(build: ChessController.() -> Unit) = p.snapshot {
+        val c = ChessController(MemoryChessStore(), instant = true).apply { build() }
+        ChessGame({}, controller = c, instant = true)
+    }
+    @Test fun chess_play_wood() = ch {
+        jumpPlay(uci = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5"), board = "wood", pieces = "staunton", select = parseSq("c6"))
+    }
+    @Test fun chess_play_neon() = ch {
+        jumpPlay(uci = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"), board = "neon", pieces = "neon", select = parseSq("b5"))
+    }
+    @Test fun chess_play_sakura() = ch {
+        jumpPlay(uci = listOf("e2e4", "c7c5", "g1f3", "d7d6", "d2d4"), board = "sakura", pieces = "chibi", select = parseSq("c5"))
+    }
+    @Test fun chess_themes() = ch {
+        openThemes()
+        peekBoard = "lumenreach"
+        peekPieces = "fantasy"
+        setPref(prefs.copy(board = "lumenreach", pieces = "fantasy", boardAnim = false))
+    }
 }

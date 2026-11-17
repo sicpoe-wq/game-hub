@@ -2,6 +2,7 @@ package com.tim.gamehub
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.tim.gamehub.games.chess.ChessGame
 import com.tim.gamehub.games.heartbound.HeartboundGame
 import com.tim.gamehub.games.watersort.WaterSortGame
 import com.tim.gamehub.games.wordsearch.WordSearchGame
@@ -24,6 +25,8 @@ object GameRegistry {
             content = { onExit -> WaterSortGame(onExit) }),
         GameEntry("heartbound", "Heartbound", "🌙", "Run an adventurer's guild in Lumenreach, and maybe fall for your heroes.", Color(0xFF8B3A42),
             content = { onExit -> HeartboundGame(onExit) }),
+        GameEntry("chess", "Chess", "♟️", "Full-rules chess with themes, a local engine, and pass-and-play.", Color(0xFF2C5F4F),
+            content = { onExit -> ChessGame(onExit) }),
         GameEntry("2048", "2048", "🔢", "Slide and merge tiles to reach 2048.", Color(0xFFE8833A)),
         GameEntry("snake", "Snake", "🐍", "Classic snake with swipe controls.", Color(0xFF2E9E5B)),
     )
