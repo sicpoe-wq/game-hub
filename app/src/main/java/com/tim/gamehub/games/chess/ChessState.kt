@@ -26,6 +26,7 @@ data class ChessPrefs(
     val autoFlip: Boolean = true,
     val clockSecs: Int = 0,
     val increment: Int = 0,
+    val view3d: Boolean = false,
 )
 
 data class Hist(val move: Move, val san: String, val fenBefore: String)
@@ -58,6 +59,7 @@ class PrefsChessStore(ctx: Context) : ChessStore {
         autoFlip = p.getBoolean("auto_flip", true),
         clockSecs = p.getInt("clock_secs", 0),
         increment = p.getInt("clock_inc", 0),
+        view3d = p.getBoolean("view3d", false),
     )
     override fun savePrefs(prefs: ChessPrefs) {
         p.edit()
@@ -65,6 +67,7 @@ class PrefsChessStore(ctx: Context) : ChessStore {
             .putBoolean("coords", prefs.coords).putBoolean("board_anim", prefs.boardAnim)
             .putBoolean("sound", prefs.sound).putBoolean("auto_flip", prefs.autoFlip)
             .putInt("clock_secs", prefs.clockSecs).putInt("clock_inc", prefs.increment)
+            .putBoolean("view3d", prefs.view3d)
             .apply()
     }
     override fun loadGame() = p.getString("game", null)
@@ -103,6 +106,9 @@ class ChessController(
     var peekPieces by mutableStateOf(prefs.pieces)
     var menuMsg by mutableStateOf<String?>(null)
     var afterThemes by mutableStateOf(ChessPage.MENU)
+    var cam by mutableStateOf(Cam())
+    var figs by mutableStateOf(startingFigures())
+    var animFig by mutableStateOf<String?>(null)
 
     val hasSave get() = store.loadGame() != null
     val legal: List<Move> get() = if (status.over) emptyList() else Chess.legal(pos)
@@ -143,6 +149,8 @@ class ChessController(
         page = afterThemes
     }
     fun openSettings() { page = ChessPage.SETTINGS }
+    fun resetCamera() { cam = Cam() }
+    fun setView3d(on: Boolean) { setPref(prefs.copy(view3d = on)) }
     fun openMenu() { page = ChessPage.MENU; thinking = false; thinkGen++ }
 
     fun newCpu(level: CpuLevel, playAs: Side, clockSecs: Int = prefs.clockSecs) {
@@ -172,6 +180,8 @@ class ChessController(
         val t = (if (clockSecs > 0) clockSecs else 0) * 1000L
         wTime = t; bTime = t
         clearAnim()
+        figs = startingFigures()
+        animFig = null
         page = ChessPage.PLAY
         persist()
         if (mode == ChessMode.CPU && pos.side != playerSide) maybeThink()
@@ -228,8 +238,9 @@ class ChessController(
         val san = Chess.san(pos, m)
         val moving = pos.at(m.from)
         if (animate && moving != null) {
-            animFrom = m.from; animTo = m.to; animPc = moving; animTick++
+            animFrom = m.from; animTo = m.to; animPc = moving; animFig = figs.getOrNull(m.from); animTick++
         } else clearAnim()
+        figs = applyFigureMove(figs, m, pos.side)
         history = history + Hist(m, san, pos.fen())
         // increment clock of the mover before switching
         if (prefs.clockSecs > 0 && incMs > 0) {
@@ -290,6 +301,8 @@ class ChessController(
             pos = fromFen(h.fenBefore)
         }
         keys = keys.dropLast(n)
+        figs = replayFigures(history)
+        animFig = null
         if (keys.isEmpty()) keys = listOf(pos.fenKey())
         selected = null
         pendingPromo = null
@@ -388,6 +401,8 @@ class ChessController(
         winner = map["winner"]?.ifBlank { null }?.let { Side.valueOf(it) }
         selected = null
         pendingPromo = null
+        figs = replayFigures(hist)
+        animFig = null
         clearAnim()
         true
     } catch (_: Exception) { false }
@@ -429,6 +444,25 @@ class ChessController(
         thinking = false
         if (board != null) setBoard(board)
         if (pieces != null) setPieces(pieces)
+        figs = replayFigures(hist)
+        animFig = null
         this.page = page
     }
+}
+
+fun replayFigures(history: List<Hist>): Array<String?> {
+    var figs = startingFigures()
+    // If the game did not start from the standard initial position, identities still start at home squares
+    // and we only advance when the recorded moves exist from startFen == startPos.
+    var p = startPos()
+    if (history.isEmpty()) return figs
+    // Rebuild from the first fenBefore if it is the standard start; otherwise leave default labels.
+    val first = history.first().fenBefore
+    if (first.substringBefore(" ") != startPos().fen().substringBefore(" ")) return startingFigures()
+    for (h in history) {
+        val side = p.side
+        figs = applyFigureMove(figs, h.move, side)
+        p = Chess.play(p, h.move)
+    }
+    return figs
 }

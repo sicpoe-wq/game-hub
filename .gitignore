@@ -4,3 +4,9 @@ app/build/
 local.properties
 .kotlin/
 *.apk
+
+# Private likeness art — never publish to GitHub
+app/src/private/
+
+# Python cache
+tools/__pycache__/

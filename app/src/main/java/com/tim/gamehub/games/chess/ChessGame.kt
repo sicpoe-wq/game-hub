@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -153,12 +154,25 @@ private fun PlayPage(c: ChessController, onExit: () -> Unit, instant: Boolean) {
             Spacer(Modifier.weight(1f))
             Text("CHESS", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
+            Pill(onClick = { c.setView3d(!c.prefs.view3d) }, tag = "btn_3d") {
+                Text(if (c.prefs.view3d) "3D" else "2D", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (c.prefs.view3d) {
+                Spacer(Modifier.width(6.dp))
+                Pill(onClick = { c.resetCamera() }, tag = "btn_cam") { Text("Reset cam", color = Color.White, fontSize = 13.sp) }
+            }
+            Spacer(Modifier.width(6.dp))
             Pill(onClick = { if (c.history.isNotEmpty()) c.undo() }, tag = "btn_undo") { Text("Undo", color = Color.White, fontSize = 14.sp) }
         }
         Spacer(Modifier.height(6.dp))
         Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             OpponentRow(c, if (c.flipped) Side.WHITE else Side.BLACK, theme, set)
-            ChessBoardView(c, theme, set, instant, Modifier.fillMaxWidth().aspectRatio(1f).testTag("chess_board"))
+            val portraits = rememberPoliticalPortraits(c.prefs.pieces)
+            if (c.prefs.view3d) {
+                ChessBoard3DView(c, theme, set, instant, portraits, Modifier.fillMaxWidth().aspectRatio(1f).testTag("chess_board"))
+            } else {
+                ChessBoardView(c, theme, set, instant, portraits, Modifier.fillMaxWidth().aspectRatio(1f).testTag("chess_board"))
+            }
             OpponentRow(c, if (c.flipped) Side.BLACK else Side.WHITE, theme, set)
             StatusLine(c)
         }
@@ -220,7 +234,11 @@ private fun StatusLine(c: ChessController) {
         c.status.over -> "Game over"
         else -> "${if (c.pos.side == Side.WHITE) "White" else "Black"} to move"
     }
-    Text(t, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+    val fig = if (politicalStyleOf(c.prefs.pieces) != null)
+        c.selected?.let { sq -> c.figs.getOrNull(sq)?.let { PoliticalRoster.of(it) } }
+    else null
+    val label = if (fig != null) "$t  ·  ${fig.name}" else t
+    Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(vertical = 4.dp).testTag("chess_status"))
 }
 
@@ -245,7 +263,7 @@ private fun MoveList(c: ChessController) {
 }
 
 @Composable
-private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet, instant: Boolean, modifier: Modifier) {
+private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet, instant: Boolean, portraits: Map<String, ImageBitmap> = emptyMap(), modifier: Modifier) {
     val measurer = rememberTextMeasurer()
     var dragSq by remember { mutableStateOf<Int?>(null) }
     var dragPos by remember { mutableStateOf<Offset?>(null) }
@@ -311,10 +329,11 @@ private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet,
         val hide = mutableSetOf<Int>()
         if (dragSq != null) hide += dragSq!!
         if (animP < 1f && c.animTo != null) hide += c.animTo!!
+        val political = politicalStyleOf(c.prefs.pieces)
         for (sq in 0..63) {
             if (sq in hide) continue
             val pc = c.pos.at(sq) ?: continue
-            drawPiece(pc, set, sqRect(boardRect, sq, c.flipped))
+            drawThemedPiece(pc, set, sqRect(boardRect, sq, c.flipped), c.figs.getOrNull(sq), portraits, political)
         }
         if (animP < 1f && c.animFrom != null && c.animTo != null && c.animPc != null) {
             val a = sqRect(boardRect, c.animFrom!!, c.flipped)
@@ -325,14 +344,14 @@ private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet,
                 a.right + (b.right - a.right) * animP,
                 a.bottom + (b.bottom - a.bottom) * animP,
             )
-            drawPiece(c.animPc!!, set, r)
+            drawThemedPiece(c.animPc!!, set, r, c.animFig, portraits, political)
         }
         val ds = dragSq; val dp = dragPos
         if (ds != null && dp != null) {
             val pc = c.pos.at(ds)
             if (pc != null) {
                 val s = boardRect.width / 8f
-                drawPiece(pc, set, Rect(dp.x - s / 2, dp.y - s / 2, dp.x + s / 2, dp.y + s / 2))
+                drawThemedPiece(pc, set, Rect(dp.x - s / 2, dp.y - s * 1.15f, dp.x + s / 2, dp.y + s * 0.15f), c.figs.getOrNull(ds), portraits, political)
             }
         }
     }
@@ -419,17 +438,51 @@ fun ThemesPage(c: ChessController, instant: Boolean) {
             Spacer(Modifier.weight(1f))
             Pill(onClick = { c.closeThemes() }, tag = "btn_done") { Text("Done", color = Color.White, fontSize = 14.sp) }
         }
-        Text("Board and pieces are chosen independently. Preview updates live.", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+        Text("Board and pieces are chosen independently. Preview updates live.", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            Text("Board view", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp))
+            ThemeChip("2D", !c.prefs.view3d, "view_2d") { c.setView3d(false) }
+            Spacer(Modifier.width(8.dp))
+            ThemeChip("3D", c.prefs.view3d, "view_3d") { c.setView3d(true) }
+            if (c.prefs.view3d) {
+                Spacer(Modifier.width(8.dp))
+                ThemeChip("Reset cam", false, "btn_cam") { c.resetCamera() }
+            }
+        }
         val measurer = rememberTextMeasurer()
-        val t = 800L
-        Canvas(Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 28.dp).testTag("theme_preview")) {
-            val side = min(size.width, size.height)
-            val left = (size.width - side) / 2f
-            val board = Rect(left, 0f, left + side, side)
-            drawBoard(theme, board, true, parseSq("f3"), setOf(parseSq("d4"), parseSq("e5"), parseSq("g5"), parseSq("h4"), parseSq("d2")), setOf(parseSq("e5")), parseSq("f1"), parseSq("b5"), null, false, !instant && c.prefs.boardAnim, t, measurer)
-            for (sq in 0..63) {
-                val pc = preview.at(sq) ?: continue
-                drawPiece(pc, set, sqRect(board, sq, false))
+        val tMs = 800L
+        val portraits = rememberPoliticalPortraits(c.peekPieces)
+        val political = politicalStyleOf(c.peekPieces)
+        val previewFigs = remember { replayFigures(run {
+            val hist = mutableListOf<Hist>()
+            var p = startPos()
+            for (u in listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6")) {
+                val m = Chess.parseUci(p, u)!!
+                hist += Hist(m, Chess.san(p, m), p.fen())
+                p = Chess.play(p, m)
+            }
+            hist
+        }) }
+        if (c.prefs.view3d) {
+            Canvas(Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 16.dp).testTag("theme_preview")) {
+                drawBoard3D(
+                    theme, c.cam, true, parseSq("f3"),
+                    setOf(parseSq("d4"), parseSq("e5"), parseSq("g5"), parseSq("h4"), parseSq("d2")),
+                    setOf(parseSq("e5")), parseSq("f1"), parseSq("b5"), null, false,
+                    preview, set, previewFigs, portraits, political, emptySet(),
+                    null, null, null, null, 1f, null, null, measurer,
+                )
+            }
+        } else {
+            Canvas(Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 28.dp).testTag("theme_preview")) {
+                val side = min(size.width, size.height)
+                val left = (size.width - side) / 2f
+                val board = Rect(left, 0f, left + side, side)
+                drawBoard(theme, board, true, parseSq("f3"), setOf(parseSq("d4"), parseSq("e5"), parseSq("g5"), parseSq("h4"), parseSq("d2")), setOf(parseSq("e5")), parseSq("f1"), parseSq("b5"), null, false, !instant && c.prefs.boardAnim, tMs, measurer)
+                for (sq in 0..63) {
+                    val pc = preview.at(sq) ?: continue
+                    drawThemedPiece(pc, set, sqRect(board, sq, false), previewFigs.getOrNull(sq), portraits, political)
+                }
             }
         }
         Column(Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false).padding(top = 10.dp)) {
@@ -444,9 +497,21 @@ fun ThemesPage(c: ChessController, instant: Boolean) {
             Text("Piece sets", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(6.dp))
             FlowRowish {
-                ChessThemes.sets.forEach { s ->
+                ChessThemes.availableSets().forEach { s ->
                     ThemeChip(s.name, c.peekPieces == s.id, "pieces_${s.id}") { c.peekPieces = s.id; c.setPref(c.prefs.copy(pieces = s.id)) }
                 }
+            }
+            if (political != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (political == PoliticalStyle.PARODY)
+                        "Parody — not affiliated with or endorsed by anyone depicted. Cartoon caricatures of public figures, treated even-handedly."
+                    else
+                        "Likeness set for private use only. Respectful portraits of public figures; not affiliated with or endorsed by anyone depicted.",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.testTag("political_disclaimer"),
+                )
             }
         }
     }
@@ -527,5 +592,43 @@ fun Pill(onClick: (() -> Unit)? = null, tag: String? = null, content: @Composabl
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content,
+    )
+}
+
+@Composable
+fun rememberPoliticalPortraits(setId: String): Map<String, ImageBitmap> {
+    val ctx = LocalContext.current
+    val style = politicalStyleOf(setId)
+    return remember(setId) {
+        if (style == null) emptyMap()
+        else PoliticalRoster.all.mapNotNull { f ->
+            ctx.politicalBitmap(style, f.id)?.let { f.id to it }
+        }.toMap()
+    }
+}
+
+fun androidx.compose.ui.graphics.drawscope.DrawScope.drawThemedPiece(
+    pc: Pc,
+    set: PieceSet,
+    r: Rect,
+    figId: String?,
+    portraits: Map<String, ImageBitmap>,
+    political: PoliticalStyle?,
+) {
+    val bmp = if (political != null && figId != null) portraits[figId] else null
+    if (bmp == null) {
+        drawPiece(pc, set, r)
+        return
+    }
+    val iw = bmp.width.toFloat()
+    val ih = bmp.height.toFloat()
+    val targetH = r.height * 1.32f
+    val targetW = targetH * (iw / ih.coerceAtLeast(1f))
+    val left = r.center.x - targetW / 2f
+    val top = r.bottom - targetH
+    drawImage(
+        bmp,
+        dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()),
+        dstSize = androidx.compose.ui.unit.IntSize(targetW.toInt().coerceAtLeast(1), targetH.toInt().coerceAtLeast(1)),
     )
 }

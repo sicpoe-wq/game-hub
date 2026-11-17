@@ -161,4 +161,15 @@ class ScreensTest {
         peekPieces = "fantasy"
         setPref(prefs.copy(board = "lumenreach", pieces = "fantasy", boardAnim = false))
     }
+
+    @Test fun chess_play_3d_parody() = ch {
+        jumpPlay(uci = listOf("e2e4", "e7e5", "g1f3", "b8c6", "f1b5"), board = "wood", pieces = "political_parody", select = parseSq("c6"))
+        setView3d(true)
+    }
+    @Test fun chess_themes_political() = ch {
+        openThemes()
+        peekBoard = "wood"
+        peekPieces = "political_parody"
+        setPref(prefs.copy(board = "wood", pieces = "political_parody", boardAnim = false, view3d = true))
+    }
 }

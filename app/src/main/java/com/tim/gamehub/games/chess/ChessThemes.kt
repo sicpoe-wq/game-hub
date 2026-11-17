@@ -40,7 +40,7 @@ data class BoardTheme(
     val backdrop: List<Color> = listOf(Color(0xFF1A1A1E), Color(0xFF121214)),
 )
 
-enum class PieceStyle { STAUNTON, MINIMAL, NEON, FANTASY, CHIBI }
+enum class PieceStyle { STAUNTON, MINIMAL, NEON, FANTASY, CHIBI, POLITICAL }
 
 data class PieceSet(
     val id: String,
@@ -135,10 +135,19 @@ object ChessThemes {
         PieceSet("chibi", "Anime Chibi", PieceStyle.CHIBI,
             wFill = Color(0xFFFFF0E8), wStroke = Color(0xFF5A3040),
             bFill = Color(0xFF3A3060), bStroke = Color(0xFFFFD0E0)),
+        PieceSet("political_parody", "Political (Parody)", PieceStyle.POLITICAL,
+            wFill = Color(0xFFF8F0EA), wStroke = Color(0xFF8A2030),
+            bFill = Color(0xFF1A2A58), bStroke = Color(0xFF8EC0F0)),
+        PieceSet("political_likeness", "Political (Likeness)", PieceStyle.POLITICAL,
+            wFill = Color(0xFFF8F0EA), wStroke = Color(0xFF8A2030),
+            bFill = Color(0xFF1A2A58), bStroke = Color(0xFF8EC0F0)),
     )
 
     fun board(id: String) = boards.find { it.id == id } ?: boards.first()
     fun set(id: String) = sets.find { it.id == id } ?: sets.first()
+    fun availableSets(): List<PieceSet> = sets.filter {
+        it.id != "political_likeness" || likenessBuildEnabled()
+    }
 }
 
 fun viewSq(sq: Int, flipped: Boolean) = if (flipped) 63 - sq else sq
@@ -301,7 +310,7 @@ fun DrawScope.drawPiece(pc: Pc, set: PieceSet, r: Rect) {
                 PieceStyle.NEON -> drawNeon(pc.kind, fill, stroke, set.glow)
                 PieceStyle.FANTASY -> drawFantasy(pc.kind, fill, stroke, pc.side)
                 PieceStyle.CHIBI -> drawChibi(pc.kind, fill, stroke, pc.side)
-                PieceStyle.STAUNTON -> drawStaunton(pc.kind, fill, stroke)
+                PieceStyle.STAUNTON, PieceStyle.POLITICAL -> drawStaunton(pc.kind, fill, stroke)
             }
         }
     }

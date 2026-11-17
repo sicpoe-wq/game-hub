@@ -150,4 +150,16 @@ class ChessTest {
         assertEquals(1, c2.history.size)
         assertEquals("e2e4", Chess.parseUci(startPos(), "e2e4")!!.uci)
     }
+
+    @Test fun politicalRosterComplete() {
+        assertEquals(32, PoliticalRoster.all.size)
+        assertEquals(16, PoliticalRoster.all.count { it.party == Party.REPUBLICAN })
+        assertEquals(16, PoliticalRoster.all.count { it.party == Party.DEMOCRAT })
+        val figs = startingFigures()
+        assertEquals(32, figs.count { it != null })
+        val e4 = Chess.parseUci(startPos(), "e2e4")!!
+        val after = applyFigureMove(figs, e4, Side.WHITE)
+        assertEquals(figs[parseSq("e2")], after[parseSq("e4")])
+        assertNull(after[parseSq("e2")])
+    }
 }
