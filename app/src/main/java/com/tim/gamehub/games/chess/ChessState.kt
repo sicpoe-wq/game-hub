@@ -27,6 +27,7 @@ data class ChessPrefs(
     val clockSecs: Int = 0,
     val increment: Int = 0,
     val view3d: Boolean = false,
+    val highQuality: Boolean = true,
 )
 
 data class Hist(val move: Move, val san: String, val fenBefore: String)
@@ -60,6 +61,7 @@ class PrefsChessStore(ctx: Context) : ChessStore {
         clockSecs = p.getInt("clock_secs", 0),
         increment = p.getInt("clock_inc", 0),
         view3d = p.getBoolean("view3d", false),
+        highQuality = p.getBoolean("high_quality", true),
     )
     override fun savePrefs(prefs: ChessPrefs) {
         p.edit()
@@ -68,6 +70,7 @@ class PrefsChessStore(ctx: Context) : ChessStore {
             .putBoolean("sound", prefs.sound).putBoolean("auto_flip", prefs.autoFlip)
             .putInt("clock_secs", prefs.clockSecs).putInt("clock_inc", prefs.increment)
             .putBoolean("view3d", prefs.view3d)
+            .putBoolean("high_quality", prefs.highQuality)
             .apply()
     }
     override fun loadGame() = p.getString("game", null)
@@ -109,6 +112,9 @@ class ChessController(
     var cam by mutableStateOf(Cam())
     var figs by mutableStateOf(startingFigures())
     var animFig by mutableStateOf<String?>(null)
+    var animCapSq by mutableStateOf<Int?>(null)
+    var animPromo by mutableStateOf(false)
+    var flyInTick by mutableIntStateOf(0)
 
     val hasSave get() = store.loadGame() != null
     val legal: List<Move> get() = if (status.over) emptyList() else Chess.legal(pos)
@@ -182,6 +188,8 @@ class ChessController(
         clearAnim()
         figs = startingFigures()
         animFig = null
+        cam = Cam()
+        flyInTick++
         page = ChessPage.PLAY
         persist()
         if (mode == ChessMode.CPU && pos.side != playerSide) maybeThink()
@@ -238,7 +246,14 @@ class ChessController(
         val san = Chess.san(pos, m)
         val moving = pos.at(m.from)
         if (animate && moving != null) {
-            animFrom = m.from; animTo = m.to; animPc = moving; animFig = figs.getOrNull(m.from); animTick++
+            animFrom = m.from; animTo = m.to; animPc = moving; animFig = figs.getOrNull(m.from)
+            animCapSq = when {
+                m.ep -> m.to + if (pos.side == Side.WHITE) -8 else 8
+                m.captured != null -> m.to
+                else -> null
+            }
+            animPromo = m.promo != null
+            animTick++
         } else clearAnim()
         figs = applyFigureMove(figs, m, pos.side)
         history = history + Hist(m, san, pos.fen())
@@ -357,7 +372,7 @@ class ChessController(
     private fun countKinds(p: Pos, side: Side): Map<Kind, Int> =
         p.sq.filterNotNull().filter { it.side == side }.groupingBy { it.kind }.eachCount()
 
-    fun clearAnim() { animFrom = null; animTo = null; animPc = null }
+    fun clearAnim() { animFrom = null; animTo = null; animPc = null; animFig = null; animCapSq = null; animPromo = false }
 
     fun persist() { store.saveGame(encode()) }
 

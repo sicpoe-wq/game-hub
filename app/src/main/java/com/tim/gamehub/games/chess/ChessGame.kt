@@ -27,6 +27,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -283,7 +284,7 @@ private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet,
     LaunchedEffect(c.animTick) {
         if (instant || c.animFrom == null) { animP = 1f; return@LaunchedEffect }
         animP = 0f
-        animate(0f, 1f, animationSpec = tween(180)) { v, _ -> animP = v }
+        animate(0f, 1f, animationSpec = tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { v, _ -> animP = v }
         c.clearAnim()
         animP = 1f
     }
@@ -338,11 +339,12 @@ private fun ChessBoardView(c: ChessController, theme: BoardTheme, set: PieceSet,
         if (animP < 1f && c.animFrom != null && c.animTo != null && c.animPc != null) {
             val a = sqRect(boardRect, c.animFrom!!, c.flipped)
             val b = sqRect(boardRect, c.animTo!!, c.flipped)
+            val lift = kotlin.math.sin((kotlin.math.PI * animP).toFloat()) * a.height * 0.35f
             val r = Rect(
                 a.left + (b.left - a.left) * animP,
-                a.top + (b.top - a.top) * animP,
+                a.top + (b.top - a.top) * animP - lift,
                 a.right + (b.right - a.right) * animP,
-                a.bottom + (b.bottom - a.bottom) * animP,
+                a.bottom + (b.bottom - a.bottom) * animP - lift,
             )
             drawThemedPiece(c.animPc!!, set, r, c.animFig, portraits, political)
         }
@@ -464,15 +466,17 @@ fun ThemesPage(c: ChessController, instant: Boolean) {
             hist
         }) }
         if (c.prefs.view3d) {
-            Canvas(Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 16.dp).testTag("theme_preview")) {
-                drawBoard3D(
-                    theme, c.cam, true, parseSq("f3"),
-                    setOf(parseSq("d4"), parseSq("e5"), parseSq("g5"), parseSq("h4"), parseSq("d2")),
-                    setOf(parseSq("e5")), parseSq("f1"), parseSq("b5"), null, false,
-                    preview, set, previewFigs, portraits, political, emptySet(),
-                    null, null, null, null, 1f, null, null, measurer,
-                )
-            }
+            ChessBoardGlView(
+                c, instant = true,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 16.dp).testTag("theme_preview"),
+                previewPos = preview,
+                previewFigs = previewFigs,
+                previewSelect = parseSq("f3"),
+                previewLegal = setOf(parseSq("d4"), parseSq("e5"), parseSq("g5"), parseSq("h4"), parseSq("d2")),
+                previewCaps = setOf(parseSq("e5")),
+                previewLastFrom = parseSq("f1"),
+                previewLastTo = parseSq("b5"),
+            )
         } else {
             Canvas(Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 28.dp).testTag("theme_preview")) {
                 val side = min(size.width, size.height)
@@ -554,6 +558,7 @@ private fun SettingsPage(c: ChessController) {
         Spacer(Modifier.height(16.dp))
         Toggle("Coordinates", p.coords, "opt_coords") { set(p.copy(coords = it)) }
         Toggle("Board animations", p.boardAnim, "opt_anim") { set(p.copy(boardAnim = it)) }
+        Toggle("High quality graphics", p.highQuality, "opt_quality") { set(p.copy(highQuality = it)) }
         Toggle("Sound effects", p.sound, "opt_sound") { set(p.copy(sound = it)) }
         Toggle("Auto-flip board (pass-and-play)", p.autoFlip, "opt_flip") { set(p.copy(autoFlip = it)) }
         Spacer(Modifier.height(12.dp))
@@ -620,12 +625,27 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawThemedPiece(
         drawPiece(pc, set, r)
         return
     }
+    val party = figId?.let { PoliticalRoster.of(it)?.party }
+    val baseH = r.height * 0.16f
+    val cx = r.center.x
+    val cy = r.bottom
+    val wood = androidx.compose.ui.graphics.Color(0xFFB88448)
+    val woodDk = androidx.compose.ui.graphics.Color(0xFF7A4C20)
+    val ring = if (party == Party.REPUBLICAN) androidx.compose.ui.graphics.Color(0xFFC02830)
+        else androidx.compose.ui.graphics.Color(0xFF2A52B8)
+    fun oval(color: Color, left: Float, top: Float, right: Float, bottom: Float, style: androidx.compose.ui.graphics.drawscope.DrawStyle = androidx.compose.ui.graphics.drawscope.Fill) {
+        drawOval(color, topLeft = Offset(left, top), size = Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)), style = style)
+    }
+    oval(woodDk, cx - r.width * 0.36f, cy - baseH * 0.20f, cx + r.width * 0.36f, cy + baseH * 0.28f)
+    oval(wood, cx - r.width * 0.33f, cy - baseH * 0.48f, cx + r.width * 0.33f, cy + baseH * 0.14f)
+    oval(ring, cx - r.width * 0.30f, cy - baseH * 0.18f, cx + r.width * 0.30f, cy + baseH * 0.10f,
+        style = Stroke(width = (r.width * 0.035f).coerceAtLeast(2f)))
     val iw = bmp.width.toFloat()
     val ih = bmp.height.toFloat()
-    val targetH = r.height * 1.32f
+    val targetH = r.height * 1.18f
     val targetW = targetH * (iw / ih.coerceAtLeast(1f))
     val left = r.center.x - targetW / 2f
-    val top = r.bottom - targetH
+    val top = r.bottom - targetH - baseH * 0.02f
     drawImage(
         bmp,
         dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()),
